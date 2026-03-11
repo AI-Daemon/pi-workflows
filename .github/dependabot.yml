@@ -8,7 +8,36 @@ updates:
     labels:
       - 'dependencies'
     commit-message:
-      prefix: 'chore(deps):'
+      prefix: 'chore(deps)'
+    groups:
+      # Group 1: Vitest & its companion packages
+      vitest-group:
+        patterns:
+          - 'vitest'
+          - '@vitest/*'
+
+      # Group 2: ESLint ecosystem + types
+      eslint-group:
+        patterns:
+          - 'eslint'
+          - 'eslint-*'
+          - '@eslint/*'
+          - '@types/eslint*'
+
+      # Group 3: GitHub Actions packages
+      actions-group:
+        patterns:
+          - '@actions/*'
+
+      # Group 4: Catch-all for safe updates (minor & patch only)
+      # Major bumps for ungrouped packages get their own dedicated PR
+      safe-updates:
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
+
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
@@ -18,3 +47,7 @@ updates:
       - 'ci'
     commit-message:
       prefix: 'chore(ci):'
+    groups:
+      github-actions:
+        patterns:
+          - '*'
