@@ -31,6 +31,8 @@ export enum RuntimeErrorCode {
   SYSTEM_ACTION_FAILED = 'SYSTEM_ACTION_FAILED',
   /** All transitions are blocked because target nodes have exhausted their max_visits budget. */
   BUDGET_EXHAUSTED = 'BUDGET_EXHAUSTED',
+  /** Stall detected — workspace state is identical to a previous cycle iteration. */
+  STALL_DETECTED = 'STALL_DETECTED',
 }
 
 // ---------------------------------------------------------------------------

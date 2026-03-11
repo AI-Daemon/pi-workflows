@@ -1832,7 +1832,7 @@ nodes:
   run_tests:
     type: system_action
     runtime: bash
-    command: 'exit 1'
+    command: 'echo "fail at $(date +%s%N)" && exit 1'
     timeout_seconds: 10
     max_visits: 5
     transitions:
@@ -1869,7 +1869,7 @@ nodes:
     // Instruction should contain the visit count "1"
     expect(adv1.data.instruction).toContain('Fix attempt 1 of 5');
 
-    // fix → run_tests (visit 2) → fix
+    // fix → run_tests (visit 2) → fix (different output due to timestamp, no stall)
     const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retry' });
     expect(adv2.ok).toBe(true);
     if (!adv2.ok) return;
@@ -2092,5 +2092,518 @@ nodes:
     const instance = await runtime.getInstance(startResult.data.instanceId);
     expect(instance!.payload['log_pointer_path']).toBeUndefined();
     expect(instance!.payload['extracted_json']).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DAWE-017: Cryptographic Stall Detection & Circuit Breaker
+// ---------------------------------------------------------------------------
+
+describe('WorkflowRuntime — Stall Detection (DAWE-017)', () => {
+  let runtime: WorkflowRuntime;
+
+  beforeEach(() => {
+    // Disable git diff in tests for deterministic behavior
+    runtime = createRuntime({ stallDetectorOptions: { includeGitDiff: false } });
+  });
+
+  it('cycle with identical system_action output → workflow suspended after stall detection', async () => {
+    // Workflow where run_tests always produces the same output → stall should trigger on 2nd cycle
+    const yaml = `
+version: '2.0'
+workflow_name: stall-detection-test
+description: Test stall detection with identical output.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "FAIL: same error every time"'
+    timeout_seconds: 10
+    max_visits: 5
+    transitions:
+      - condition: 'action_result.exit_code != 0'
+        target: fix
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix the tests.
+    completion_schema:
+      status: string
+      tests_pass: boolean
+    max_visits: 5
+    transitions:
+      - condition: "payload.tests_pass == true"
+        target: done
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+    message: All tests pass.
+
+  human_intervention:
+    type: terminal
+    status: suspended
+    message: Stall detected. Human review required.
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix (first iteration, hash stored)
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests (visit 2) — same output "FAIL: same error every time"
+    // Stall check runs: hash matches iteration 1 → SUSPENDED
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv2.ok).toBe(true);
+    if (adv2.ok) {
+      expect(adv2.data.status).toBe('suspended');
+    }
+  });
+
+  it('cycle with different system_action output → workflow continues normally', async () => {
+    // Use a command that produces different output each time (includes timestamp)
+    const yaml = `
+version: '2.0'
+workflow_name: no-stall-test
+description: Test no stall with different output.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "FAIL at $(date +%s%N)"'
+    timeout_seconds: 10
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix the tests.
+    completion_schema:
+      status: string
+      tests_pass: boolean
+    max_visits: 5
+    transitions:
+      - condition: "payload.tests_pass == true"
+        target: done
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+    message: All tests pass.
+
+  human_intervention:
+    type: terminal
+    status: suspended
+    message: Human review required.
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests (visit 2) → fix (different output, no stall)
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv2.ok).toBe(true);
+    if (adv2.ok) {
+      expect(adv2.data.status).toBe('waiting_for_agent');
+      expect(adv2.data.currentNodeId).toBe('fix');
+    }
+  });
+
+  it('stall detected → $metadata.stall_detected is true', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: stall-metadata-test
+description: Test $metadata.stall_detected.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "identical output"'
+    timeout_seconds: 10
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix.
+    completion_schema:
+      status: string
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+
+  human_intervention:
+    type: terminal
+    status: suspended
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix
+    await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+
+    // fix → run_tests (visit 2) → stall detected
+    await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying' });
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    const $metadata = instance!.payload['$metadata'] as Record<string, unknown>;
+    expect($metadata['stall_detected']).toBe(true);
+  });
+
+  it('stall detected → $metadata.visits NOT incremented for the target node', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: stall-visits-test
+description: Test visits not incremented on stall.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "same output"'
+    timeout_seconds: 10
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix.
+    completion_schema:
+      status: string
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+
+  human_intervention:
+    type: terminal
+    status: suspended
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix
+    await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+
+    // Get visit count before stall
+    let instance = await runtime.getInstance(startResult.data.instanceId);
+    let $metadata = instance!.payload['$metadata'] as { visits: Record<string, number> };
+    const visitsBeforeStall = $metadata.visits['run_tests'] ?? 0;
+    expect(visitsBeforeStall).toBe(1);
+
+    // fix → run_tests (visit 2 attempt) → stall detected → visits should NOT increment
+    await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying' });
+
+    instance = await runtime.getInstance(startResult.data.instanceId);
+    $metadata = instance!.payload['$metadata'] as { visits: Record<string, number> };
+    // run_tests visits should still be 1 (the stalled visit was NOT counted)
+    expect($metadata.visits['run_tests']).toBe(1);
+  });
+
+  it('stall detected → AdvanceResult.status is "suspended"', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: stall-status-test
+description: Test suspended status on stall.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "repeating error"'
+    timeout_seconds: 10
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix.
+    completion_schema:
+      status: string
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+
+  human_intervention:
+    type: terminal
+    status: suspended
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    const adv = await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying' });
+    expect(adv.ok).toBe(true);
+    if (adv.ok) {
+      expect(adv.data.status).toBe('suspended');
+      expect(adv.data.terminalStatus).toBe('suspended');
+    }
+  });
+
+  it('stall detected → agent message contains hash and iteration info', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: stall-message-test
+description: Test stall agent message.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "always same"'
+    timeout_seconds: 10
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix.
+    completion_schema:
+      status: string
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+
+  human_intervention:
+    type: terminal
+    status: suspended
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    const adv = await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying' });
+    expect(adv.ok).toBe(true);
+    if (adv.ok) {
+      expect(adv.data.agentMessage).toContain('STALL DETECTED');
+      expect(adv.data.agentMessage).toContain('sha256:');
+      expect(adv.data.agentMessage).toContain('WORKFLOW SUSPENDED');
+      expect(adv.data.agentMessage).toContain('iteration');
+      expect(adv.data.agentMessage).toContain('run_tests');
+    }
+  });
+
+  it('no stall → $metadata.state_hashes grows with each iteration', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: hashes-grow-test
+description: Test state_hashes grow without stall.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "output $(date +%s%N)"'
+    timeout_seconds: 10
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix.
+    completion_schema:
+      status: string
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+
+  human_intervention:
+    type: terminal
+    status: suspended
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix
+    await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+
+    let instance = await runtime.getInstance(startResult.data.instanceId);
+    let $metadata = instance!.payload['$metadata'] as { state_hashes: string[] };
+    // After first cycle iteration, 0 hashes (first visit doesn't trigger stall check)
+    // Actually, the hash IS stored after first back-edge crossing (visit 1 → fix checks)
+    // The stall check runs on the back-edge from fix → run_tests
+    // So after start → run_tests (visit 1) → fix, no back-edge yet, no hashes
+
+    // fix → run_tests (visit 2) → fix (back-edge, hash stored)
+    await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying' });
+
+    instance = await runtime.getInstance(startResult.data.instanceId);
+    $metadata = instance!.payload['$metadata'] as { state_hashes: string[] };
+    // Should have stored a hash from the first back-edge crossing
+    expect($metadata.state_hashes.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('v1.0 workflow → stall detection not triggered (no cycles)', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'ask', { choice: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.status).toBe('waiting_for_agent');
+
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'do-task', { result: 'done' });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+    expect(adv2.data.status).toBe('completed');
+
+    // $metadata.state_hashes should be empty (no cycles = no stall checks)
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    const $metadata = instance!.payload['$metadata'] as { state_hashes: string[] };
+    expect($metadata.state_hashes.length).toBe(0);
   });
 });
