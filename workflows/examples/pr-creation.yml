@@ -89,7 +89,7 @@ nodes:
   run_checks:
     type: system_action
     runtime: bash
-    command: 'bash workflows/scripts/run-project-tests.sh /tmp/dawe/pr-checks.json'
+    command: 'bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/dawe/pr-checks.json'
     timeout_seconds: 120
     extract_json: '/tmp/dawe/pr-checks.json'
     transitions:

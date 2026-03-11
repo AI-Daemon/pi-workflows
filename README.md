@@ -6,41 +6,21 @@
 
 A state-machine-based workflow engine for Pi agents. Replaces text-based skill routing with deterministic YAML/JSON workflows.
 
-## Quick Start
+## Installation
 
 ```bash
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Run tests
-npm test
-
-# Create your first workflow
-cat > workflows/examples/my-first-workflow.yml << 'EOF'
-version: '1.0'
-workflow_name: my-first-workflow
-description: A simple example workflow.
-initial_node: ask_task
-
-nodes:
-  ask_task:
-    type: llm_decision
-    instruction: 'What task do you need?'
-    required_schema:
-      task: string
-    transitions:
-      - condition: 'true'
-        target: done
-
-  done:
-    type: terminal
-    status: success
-    message: 'Task noted: {{payload.task}}'
-EOF
+pi install https://github.com/AI-Daemon/pi-workflows
 ```
+
+After installing, restart Pi. The `advance_workflow` tool is immediately available:
+
+```
+advance_workflow({ action: 'list' })
+```
+
+Place your own workflows in `~/.pi/workflows/` — they're auto-discovered on startup.
+
+See the [Installation Guide](./docs/installation.md) for prerequisites, verification, configuration, and troubleshooting.
 
 ## Features
 
@@ -139,6 +119,7 @@ nodes:
 
 ## Documentation
 
+- [Installation Guide](./docs/installation.md) — Install, configure, and troubleshoot
 - [Architecture](./docs/architecture.md) — System design, data flow, FSM model, security
 - [Workflow Authoring Guide](./docs/workflow-authoring-guide.md) — How to write workflows
 - [API Reference](./docs/api-reference.md) — TypeScript API for engine developers
@@ -147,6 +128,19 @@ nodes:
 - [Contributing](./docs/contributing.md) — Development setup, standards, how to extend
 - [Migration Guide](./docs/migration-guide.md) — Migrating from Markdown skills
 - [Architecture Decision Records](./docs/adr/) — Why we made specific design choices
+
+## Development Quick Start
+
+```bash
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Run tests
+npm test
+```
 
 ## Tech Stack
 

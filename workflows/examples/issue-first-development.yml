@@ -78,7 +78,7 @@ nodes:
     type: system_action
     runtime: bash
     command: >
-      bash workflows/scripts/check-gh-issue.sh
+      bash "$DAWE_SCRIPTS_DIR/check-gh-issue.sh"
       "{{payload.project_name}}"
       "{{payload.description}}"
     timeout_seconds: 30
@@ -118,7 +118,7 @@ nodes:
     type: system_action
     runtime: bash
     command: >
-      bash workflows/scripts/create-gh-issue.sh
+      bash "$DAWE_SCRIPTS_DIR/create-gh-issue.sh"
       "{{payload.project_name}}"
       "[{{payload.issue_type}}] {{payload.description}}"
       "{{payload.description}}"
@@ -140,7 +140,7 @@ nodes:
     type: system_action
     runtime: bash
     command: >
-      bash workflows/scripts/setup-branch.sh
+      bash "$DAWE_SCRIPTS_DIR/setup-branch.sh"
       "{{payload.issue_type}}"
       "{{default payload.existing_issue_number '0'}}"
     timeout_seconds: 15
@@ -197,7 +197,7 @@ nodes:
   run_tests:
     type: system_action
     runtime: bash
-    command: 'bash workflows/scripts/run-project-tests.sh /tmp/dawe/latest-test.json'
+    command: 'bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/dawe/latest-test.json'
     timeout_seconds: 120
     max_visits: 3
     extract_json: '/tmp/dawe/latest-test.json'
@@ -255,7 +255,7 @@ nodes:
     type: system_action
     runtime: bash
     command: >
-      bash workflows/scripts/create-pr.sh
+      bash "$DAWE_SCRIPTS_DIR/create-pr.sh"
       "{{payload.project_name}}"
       "[{{payload.issue_type}}] {{payload.description}}"
       "Closes issue. {{payload.description}}"

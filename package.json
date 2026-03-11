@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Declarative Agent Workflow Engine (DAWE) — A state-machine-based workflow engine for Pi agents",
+  "keywords": [
+    "pi-package"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -10,6 +13,11 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
+  },
+  "pi": {
+    "extensions": [
+      "./src/extension/index.ts"
+    ]
   },
   "engines": {
     "node": ">=20.0.0"
@@ -48,10 +56,18 @@
     "vitest": "^2.1.8"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": ">=0.56.1"
+    "@mariozechner/pi-coding-agent": ">=0.56.1",
+    "@mariozechner/pi-ai": "*",
+    "@sinclair/typebox": "*"
   },
   "peerDependenciesMeta": {
     "@mariozechner/pi-coding-agent": {
+      "optional": true
+    },
+    "@mariozechner/pi-ai": {
+      "optional": true
+    },
+    "@sinclair/typebox": {
       "optional": true
     }
   },

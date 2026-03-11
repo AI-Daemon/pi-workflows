@@ -307,4 +307,79 @@ nodes:
     await registry.reload('nonexistent');
     expect(registry.get('nonexistent')).toBeUndefined();
   });
+
+  // ---------------------------------------------------------------------------
+  // New tests for default constructor (issue #58 — pi install packaging)
+  // ---------------------------------------------------------------------------
+
+  // 12. Default constructor discovers bundled examples from package root
+  it('should discover bundled examples with default constructor', async () => {
+    const registry = new WorkflowRegistry();
+    await registry.loadAll();
+
+    const names = registry.list().map((w) => w.name);
+    expect(names).toContain('simple-task');
+    expect(names).toContain('code-review');
+    expect(names).toContain('issue-first-development');
+    expect(names).toContain('pr-creation');
+  });
+
+  // 13. Default constructor discovers workflows from ~/.pi/workflows/ (via temp dir)
+  it('should discover workflows from user directory when present', async () => {
+    // We test the mechanism by passing a temp dir simulating ~/.pi/workflows/
+    createTempDir();
+    writeTempWorkflow(
+      'user-custom.yml',
+      `
+version: '1.0'
+workflow_name: user-custom
+description: A user-authored workflow
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    // Include bundled examples dir + temp dir simulating user dir
+    const { BUNDLED_EXAMPLES_DIR } = await import('../../../src/extension/workflow-registry.js');
+    const registry = new WorkflowRegistry([BUNDLED_EXAMPLES_DIR, TEMP_DIR]);
+    await registry.loadAll();
+
+    const names = registry.list().map((w) => w.name);
+    expect(names).toContain('simple-task'); // bundled
+    expect(names).toContain('user-custom'); // user-authored
+
+    cleanTempDir();
+  });
+
+  // 14. Default constructor handles missing ./workflows/ directory gracefully
+  it('should handle missing CWD workflows directory gracefully', async () => {
+    // Pass a nonexistent CWD-style path alongside bundled examples
+    const { BUNDLED_EXAMPLES_DIR } = await import('../../../src/extension/workflow-registry.js');
+    const registry = new WorkflowRegistry([
+      BUNDLED_EXAMPLES_DIR,
+      '/nonexistent/user-workflows-dir',
+      '/nonexistent/cwd-workflows-dir',
+    ]);
+    await registry.loadAll();
+
+    // Bundled examples should still load
+    const names = registry.list().map((w) => w.name);
+    expect(names.length).toBeGreaterThanOrEqual(4);
+    expect(names).toContain('simple-task');
+
+    // Warnings logged for missing dirs but no crash
+    const warnings = registry.getWarnings();
+    expect(warnings.some((w) => w.includes('/nonexistent/'))).toBe(true);
+  });
 });
