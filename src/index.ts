@@ -60,6 +60,11 @@ export {
   PayloadManager,
   // Template Engine
   resolveTemplate,
+  // System Action Executor
+  SystemActionExecutor,
+  SecurityValidator,
+  DEFAULT_BLOCKED_PATTERNS,
+  shellEscape,
 } from './engine/index.js';
 
 export type {
@@ -83,6 +88,13 @@ export type {
   PayloadValidationError,
   PayloadHistoryEntry,
   TemplateError,
+  // System Action Executor types
+  ExecutorActionResult,
+  ExecutorOptions,
+  StreamingCallbacks,
+  RetryConfig,
+  SecurityError,
+  SecurityErrorCode,
 } from './engine/index.js';
 
 // Result utility type
