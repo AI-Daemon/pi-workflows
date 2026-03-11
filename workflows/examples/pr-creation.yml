@@ -1,0 +1,164 @@
+# ==============================================================================
+# pr-creation.yml — Standalone PR Creation Workflow (v2.0)
+# ==============================================================================
+#
+# A focused workflow for creating pull requests after manual coding.
+# Assumes code changes have already been committed to a feature branch.
+#
+# Flow:
+#   1. Agent gathers PR details (title, description, base branch, etc.)
+#   2. System verifies the branch has commits ahead of base
+#   3. System runs lint and test checks (extract_json for structured output)
+#   4. System pushes the branch to the remote
+#   5. System creates the PR via GitHub CLI
+#
+# v2.0 features demonstrated:
+#   - extract_json: structured lint/test output parsed from file
+
+version: '2.0'
+
+workflow_name: pr-creation
+
+description: >
+  Standalone pull request creation workflow. Gathers PR details, runs checks,
+  pushes the branch, and creates the PR via GitHub CLI.
+
+initial_node: gather_pr_info
+
+metadata:
+  author: AI-Daemon
+  category: development
+  tags:
+    - github
+    - pull-request
+    - ci
+  min_engine_version: '2.0'
+  estimated_duration: 2-5 minutes
+
+nodes:
+  # --------------------------------------------------------------------------
+  # Phase 1: Gather PR Information
+  # --------------------------------------------------------------------------
+
+  gather_pr_info:
+    type: llm_decision
+    instruction: >
+      Gather the details needed to create a pull request.
+
+      Determine:
+      1. The base branch to merge into (usually "main" or "develop")
+      2. A concise, descriptive PR title
+      3. A detailed PR description explaining the changes
+      4. The related issue number (if any)
+      5. The type of change (bug, feature, chore, docs)
+    required_schema:
+      base_branch: string
+      title: string
+      description: string
+      issue_number: number
+      change_type: string
+    transitions:
+      - condition: 'true'
+        target: check_branch_status
+
+  # --------------------------------------------------------------------------
+  # Phase 2: Verify Branch Status
+  # --------------------------------------------------------------------------
+
+  # Verify the current branch has commits ahead of the base branch.
+  check_branch_status:
+    type: system_action
+    runtime: bash
+    command: 'git log {{payload.base_branch}}..HEAD --oneline'
+    timeout_seconds: 15
+    transitions:
+      # stdout is non-empty → branch has commits
+      - condition: 'action_result.stdout != ""'
+        target: run_checks
+        priority: 0
+      # stdout is empty → no commits ahead of base
+      - condition: 'true'
+        target: no_changes_error
+        priority: 99
+
+  # --------------------------------------------------------------------------
+  # Phase 3: Run Checks
+  # --------------------------------------------------------------------------
+
+  # Run lint and test checks with structured JSON output.
+  run_checks:
+    type: system_action
+    runtime: bash
+    command: 'bash workflows/scripts/run-project-tests.sh /tmp/dawe/pr-checks.json'
+    timeout_seconds: 120
+    extract_json: '/tmp/dawe/pr-checks.json'
+    transitions:
+      # Checks pass → push the branch
+      - condition: 'action_result.exit_code == 0'
+        target: push_branch
+        priority: 0
+      # Checks fail → still push (PR will show failing checks)
+      - condition: 'true'
+        target: push_branch
+        priority: 99
+
+  # --------------------------------------------------------------------------
+  # Phase 4: Push & Create PR
+  # --------------------------------------------------------------------------
+
+  # Push the current branch to the remote.
+  push_branch:
+    type: system_action
+    runtime: bash
+    command: 'git push origin HEAD'
+    timeout_seconds: 60
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: create_pr
+        priority: 0
+      - condition: 'true'
+        target: pr_failed
+        priority: 1
+
+  # Create the pull request via GitHub CLI.
+  create_pr:
+    type: system_action
+    runtime: bash
+    command: >
+      gh pr create
+      --title "{{payload.title}}"
+      --body "{{payload.description}}"
+      --base "{{payload.base_branch}}"
+      --json number,url
+    timeout_seconds: 30
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: pr_complete
+        priority: 0
+      - condition: 'true'
+        target: pr_failed
+        priority: 1
+
+  # --------------------------------------------------------------------------
+  # Terminal Nodes
+  # --------------------------------------------------------------------------
+
+  pr_complete:
+    type: terminal
+    status: success
+    message: >
+      Pull request created successfully.
+      Title: {{payload.title}}
+      Base: {{payload.base_branch}}
+
+  no_changes_error:
+    type: terminal
+    status: failure
+    message: >
+      No commits found ahead of {{payload.base_branch}}.
+      Please commit your changes before creating a pull request.
+
+  pr_failed:
+    type: terminal
+    status: failure
+    message: 'Failed to create pull request: {{payload.title}}'
