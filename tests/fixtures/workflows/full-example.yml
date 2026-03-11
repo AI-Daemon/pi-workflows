@@ -1,0 +1,127 @@
+# The PRD's issue-first-development example (adapted)
+version: '1.0'
+workflow_name: issue-first-development
+description: Issue-first development workflow with system action checks.
+initial_node: assess-intent
+
+metadata:
+  repo: example-repo
+  default_branch: main
+
+nodes:
+  assess-intent:
+    type: llm_decision
+    instruction: 'Assess the user intent. Is this a bug fix or a feature request?'
+    required_schema:
+      intent: string
+      title: string
+      description: string
+    transitions:
+      - condition: "payload.intent == 'bug'"
+        target: check-existing-issue
+        priority: 0
+      - condition: "payload.intent == 'feature'"
+        target: check-existing-issue
+        priority: 1
+      - condition: 'true'
+        target: fail-unknown-intent
+        priority: 99
+
+  check-existing-issue:
+    type: system_action
+    runtime: bash
+    command: 'echo "{\"exists\": false, \"issue_number\": 0}"'
+    timeout_seconds: 15
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: create-issue
+      - condition: 'true'
+        target: fail-system
+
+  create-issue:
+    type: system_action
+    runtime: bash
+    command: 'echo "{\"issue_number\": 42, \"url\": \"https://github.com/example/42\"}"'
+    timeout_seconds: 15
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: create-branch
+      - condition: 'true'
+        target: fail-system
+
+  create-branch:
+    type: system_action
+    runtime: bash
+    command: 'echo "branch created"'
+    timeout_seconds: 15
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: implement-code
+      - condition: 'true'
+        target: fail-system
+
+  implement-code:
+    type: llm_task
+    instruction: 'Implement the code for issue #{{payload.action_result.data.issue_number}}.'
+    completion_schema:
+      status: string
+    context_keys:
+      - intent
+      - title
+      - description
+    transitions:
+      - condition: "payload.status == 'complete'"
+        target: create-pr
+        priority: 0
+      - condition: 'true'
+        target: fail-implementation
+        priority: 1
+
+  create-pr:
+    type: system_action
+    runtime: bash
+    command: 'echo "{\"pr_number\": 100, \"url\": \"https://github.com/example/pull/100\"}"'
+    timeout_seconds: 15
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: review-code
+      - condition: 'true'
+        target: fail-system
+
+  review-code:
+    type: llm_task
+    instruction: 'Review the PR #{{payload.action_result.data.pr_number}}.'
+    completion_schema:
+      approved: boolean
+    transitions:
+      - condition: 'payload.approved == true'
+        target: success
+        priority: 0
+      - condition: 'true'
+        target: fail-review
+        priority: 1
+
+  success:
+    type: terminal
+    status: success
+    message: 'Issue-first development completed successfully.'
+
+  fail-unknown-intent:
+    type: terminal
+    status: failure
+    message: 'Could not determine user intent.'
+
+  fail-system:
+    type: terminal
+    status: failure
+    message: 'A system action failed.'
+
+  fail-implementation:
+    type: terminal
+    status: failure
+    message: 'Implementation was not completed.'
+
+  fail-review:
+    type: terminal
+    status: failure
+    message: 'Code review did not pass.'

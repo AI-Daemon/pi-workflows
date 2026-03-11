@@ -26,6 +26,6 @@ export default tseslint.config(
       '@typescript-eslint/no-empty-object-type': 'off',
     },
   },
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- eslint-config-prettier types are incompatible
+
   eslintConfigPrettier,
 );

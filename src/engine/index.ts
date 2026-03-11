@@ -64,3 +64,27 @@ export type { ExecutorActionResult, ExecutorOptions, StreamingCallbacks, RetryCo
 export { SecurityValidator, DEFAULT_BLOCKED_PATTERNS } from './security-validator.js';
 export type { SecurityError, SecurityErrorCode } from './security-validator.js';
 export { shellEscape } from './shell-escape.js';
+
+// Workflow Runtime Engine
+export { WorkflowRuntime } from './workflow-runtime.js';
+export type { RuntimeOptions, RuntimeEvents } from './workflow-runtime.js';
+
+// Advance Result types
+export type {
+  WorkflowInstance,
+  AdvanceResult,
+  InstanceStatus,
+  InstanceHistoryEntry,
+  SystemActionChainEntry,
+} from './advance-result.js';
+
+// Runtime Errors
+export { RuntimeErrorCode } from './runtime-errors.js';
+export type { RuntimeError } from './runtime-errors.js';
+
+// Instance Store
+export { InMemoryInstanceStore } from './instance-store.js';
+export type { InstanceStore } from './instance-store.js';
+
+// Agent Message Formatter
+export { formatAgentMessage } from './agent-message-formatter.js';

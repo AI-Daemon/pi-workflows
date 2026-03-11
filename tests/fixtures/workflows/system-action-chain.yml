@@ -1,0 +1,58 @@
+# A → sys1 → sys2 → B → terminal
+version: '1.0'
+workflow_name: system-action-chain
+description: Workflow with chained system actions.
+initial_node: start-task
+
+nodes:
+  start-task:
+    type: llm_task
+    instruction: 'Provide the project name.'
+    completion_schema:
+      project_name: string
+    transitions:
+      - condition: 'true'
+        target: check-status
+
+  check-status:
+    type: system_action
+    runtime: bash
+    command: 'echo "checking status"'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: setup-env
+      - condition: 'true'
+        target: fail
+
+  setup-env:
+    type: system_action
+    runtime: bash
+    command: 'echo "setting up environment"'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: implement
+      - condition: 'true'
+        target: fail
+
+  implement:
+    type: llm_task
+    instruction: 'Implement the feature for {{payload.project_name}}.'
+    completion_schema:
+      status: string
+    context_keys:
+      - project_name
+    transitions:
+      - condition: 'true'
+        target: success
+
+  success:
+    type: terminal
+    status: success
+    message: 'Project {{payload.project_name}} completed.'
+
+  fail:
+    type: terminal
+    status: failure
+    message: 'Pipeline failed.'
