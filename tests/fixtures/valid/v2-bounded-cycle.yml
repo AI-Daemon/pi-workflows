@@ -1,0 +1,49 @@
+# v2.0 workflow with a bounded cycle (run_tests → fix → run_tests).
+# The run_tests node declares max_visits: 3, allowing up to 3 visits
+# before the cycle budget is exhausted.
+
+version: '2.0'
+workflow_name: bounded-cycle-test
+description: Tests v2.0 bounded cycle schema support.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin the task.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'payload.status == "done"'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'npm test -- --reporter=json > /tmp/dawe/test.json'
+    max_visits: 3
+    extract_json: '/tmp/dawe/test.json'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done
+      - condition: 'action_result.exit_code != 0'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix the failing tests.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'always'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+    message: All tests pass.
+
+  human_intervention:
+    type: terminal
+    status: suspended
+    message: Tests failed after maximum retry attempts. Human review required.
