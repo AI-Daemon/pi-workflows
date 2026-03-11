@@ -7,12 +7,26 @@
  */
 
 import { readdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
 import type { WorkflowDefinition } from '../schemas/workflow.schema.js';
 import { validateWorkflowFull } from '../engine/composite-validation.js';
 import { DAWELogger } from '../utils/logger.js';
+
+// ---------------------------------------------------------------------------
+// Package root resolution (import.meta.url-based, works in all environments)
+// ---------------------------------------------------------------------------
+
+/** Absolute path to the package root, resolved from this module's location. */
+export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/** Absolute path to the bundled example workflows directory. */
+export const BUNDLED_EXAMPLES_DIR = join(PACKAGE_ROOT, 'workflows', 'examples');
+
+/** Absolute path to the bundled scripts directory. */
+export const BUNDLED_SCRIPTS_DIR = join(PACKAGE_ROOT, 'workflows', 'scripts');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,7 +55,11 @@ export class WorkflowRegistry {
   private readonly logger: DAWELogger;
 
   constructor(workflowDirs?: string[], options?: { logger?: DAWELogger }) {
-    this.workflowDirs = workflowDirs ?? [resolve('./workflows'), join(homedir(), '.pi', 'workflows')];
+    this.workflowDirs = workflowDirs ?? [
+      BUNDLED_EXAMPLES_DIR, // Bundled examples (resolved from package root via import.meta.url)
+      join(homedir(), '.pi', 'workflows'), // User-authored workflows
+      resolve('./workflows'), // Project-local workflows (CWD — development convenience)
+    ];
     this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
   }
 

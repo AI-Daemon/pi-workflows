@@ -12,12 +12,12 @@ import { Type } from '@sinclair/typebox';
 import { StringEnum } from '@mariozechner/pi-ai';
 
 import { WorkflowRuntime } from '../engine/workflow-runtime.js';
-import { WorkflowRegistry } from './workflow-registry.js';
+import { WorkflowRegistry, PACKAGE_ROOT, BUNDLED_SCRIPTS_DIR } from './workflow-registry.js';
 import { AdvanceWorkflowHandler } from './advance-workflow-tool.js';
 import type { AdvanceWorkflowInput } from './advance-workflow-tool.js';
 
 // Re-export all extension modules
-export { WorkflowRegistry } from './workflow-registry.js';
+export { WorkflowRegistry, PACKAGE_ROOT, BUNDLED_EXAMPLES_DIR, BUNDLED_SCRIPTS_DIR } from './workflow-registry.js';
 export type { WorkflowSummary } from './workflow-registry.js';
 export { AdvanceWorkflowHandler } from './advance-workflow-tool.js';
 export type { AdvanceWorkflowInput, AdvanceWorkflowOutput } from './advance-workflow-tool.js';
@@ -89,8 +89,16 @@ const AdvanceWorkflowParams = Type.Object({
  * }
  */
 export default function piWorkflowsExtension(pi: ExtensionAPI): void {
-  // Create runtime and registry
-  const runtime = new WorkflowRuntime();
+  // Create runtime with DAWE_PACKAGE_ROOT and DAWE_SCRIPTS_DIR injected
+  // into every system_action child process environment.
+  const runtime = new WorkflowRuntime({
+    executorOptions: {
+      env: {
+        DAWE_PACKAGE_ROOT: PACKAGE_ROOT,
+        DAWE_SCRIPTS_DIR: BUNDLED_SCRIPTS_DIR,
+      },
+    },
+  });
   const registry = new WorkflowRegistry();
   const handler = new AdvanceWorkflowHandler(runtime, registry);
 
