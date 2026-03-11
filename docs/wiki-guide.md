@@ -33,12 +33,12 @@ That's it. No extra steps required.
 
 GitHub Wiki does not support subdirectories. The sync workflow flattens the `docs/` folder structure using a **double-dash (`--`) separator** to encode path segments.
 
-| Source Path in Repo              | Wiki Page Name              |
-| -------------------------------- | --------------------------- |
-| `docs/foo.md`                    | `foo`                       |
-| `docs/bar/baz.md`               | `bar--baz`                  |
-| `docs/adr/001-decision.md`      | `adr--001-decision`         |
-| `docs/deep/nested/page.md`      | `deep--nested--page`        |
+| Source Path in Repo        | Wiki Page Name       |
+| -------------------------- | -------------------- |
+| `docs/foo.md`              | `foo`                |
+| `docs/bar/baz.md`          | `bar--baz`           |
+| `docs/adr/001-decision.md` | `adr--001-decision`  |
+| `docs/deep/nested/page.md` | `deep--nested--page` |
 
 ### Rules
 
@@ -50,11 +50,11 @@ GitHub Wiki does not support subdirectories. The sync workflow flattens the `doc
 
 Sometimes you want a landing page for an entire subdirectory (e.g., an index page for `docs/adr/`). The sync workflow supports **folder notes** using two conventions:
 
-| Source Path              | Wiki Page Name | Purpose                         |
-| ------------------------ | -------------- | ------------------------------- |
-| `docs/adr/_index.md`    | `adr`          | Landing page for the ADR section |
-| `docs/adr/README.md`    | `adr`          | Same — alternative convention    |
-| `docs/_index.md`         | `Home`         | Wiki home page                   |
+| Source Path          | Wiki Page Name | Purpose                          |
+| -------------------- | -------------- | -------------------------------- |
+| `docs/adr/_index.md` | `adr`          | Landing page for the ADR section |
+| `docs/adr/README.md` | `adr`          | Same — alternative convention    |
+| `docs/_index.md`     | `Home`         | Wiki home page                   |
 
 Either `_index.md` or `README.md` works. Pick one convention per directory and stick with it. `_index.md` is preferred because it is more explicit and avoids confusion with the repository root `README.md`.
 
@@ -119,12 +119,12 @@ Pages that were created **manually** in the Wiki (i.e., not synced from `docs/`)
 
 ## Summary
 
-| Task                        | How                                                        |
-| --------------------------- | ---------------------------------------------------------- |
-| Add a new doc page          | Create `docs/my-page.md`, open PR, merge                  |
-| Add a folder landing page   | Create `docs/folder/_index.md`                             |
-| Set the Wiki home page      | Create `docs/_index.md`                                    |
-| Edit existing documentation | Edit the file in `docs/`, open PR, merge                   |
-| Delete a doc page           | Delete the file from `docs/`, open PR, merge               |
-| Preview locally             | Open the Markdown file in any viewer                       |
-| Edit the Wiki directly      | **Don't** — changes will be overwritten on next sync       |
+| Task                        | How                                                  |
+| --------------------------- | ---------------------------------------------------- |
+| Add a new doc page          | Create `docs/my-page.md`, open PR, merge             |
+| Add a folder landing page   | Create `docs/folder/_index.md`                       |
+| Set the Wiki home page      | Create `docs/_index.md`                              |
+| Edit existing documentation | Edit the file in `docs/`, open PR, merge             |
+| Delete a doc page           | Delete the file from `docs/`, open PR, merge         |
+| Preview locally             | Open the Markdown file in any viewer                 |
+| Edit the Wiki directly      | **Don't** — changes will be overwritten on next sync |
