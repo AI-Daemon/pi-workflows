@@ -1,0 +1,156 @@
+# ==============================================================================
+# code-review.yml — Automated Code Review Workflow (v2.0)
+# ==============================================================================
+#
+# An automated code review workflow that:
+#   1. Agent gathers the PR number and review focus
+#   2. System fetches the PR diff via gh CLI
+#   3. Agent reviews the diff and provides structured feedback
+#   4. System posts the review comments on the PR
+#
+# Demonstrates: system_action chaining, LLM analysis of diffs
+
+version: '2.0'
+
+workflow_name: code-review
+
+description: >
+  Automated code review workflow. Fetches a PR diff, provides structured
+  review feedback, and posts comments via GitHub CLI.
+
+initial_node: gather_review_info
+
+metadata:
+  author: AI-Daemon
+  category: development
+  tags:
+    - github
+    - code-review
+    - pull-request
+  min_engine_version: '2.0'
+  estimated_duration: 3-10 minutes
+
+nodes:
+  # --------------------------------------------------------------------------
+  # Phase 1: Gather Review Information
+  # --------------------------------------------------------------------------
+
+  gather_review_info:
+    type: llm_decision
+    instruction: >
+      Gather the information needed for the code review.
+
+      Determine:
+      1. The repository (owner/repo format)
+      2. The PR number to review
+      3. Any specific focus areas for the review (e.g., security, performance, style)
+    required_schema:
+      repo: string
+      pr_number: number
+      focus_areas: string
+    transitions:
+      - condition: 'true'
+        target: fetch_pr_diff
+
+  # --------------------------------------------------------------------------
+  # Phase 2: Fetch PR Diff
+  # --------------------------------------------------------------------------
+
+  fetch_pr_diff:
+    type: system_action
+    runtime: bash
+    command: 'gh pr diff {{payload.pr_number}} --repo {{payload.repo}}'
+    timeout_seconds: 30
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: review_diff
+        priority: 0
+      - condition: 'true'
+        target: review_failed
+        priority: 1
+
+  # --------------------------------------------------------------------------
+  # Phase 3: Agent Reviews the Diff
+  # --------------------------------------------------------------------------
+
+  review_diff:
+    type: llm_task
+    instruction: >
+      Review the following pull request diff for {{payload.repo}} PR #{{payload.pr_number}}.
+
+      Focus areas: {{payload.focus_areas}}
+
+      Diff:
+      {{payload.action_result.stdout}}
+
+      Provide a thorough code review. For each issue found, include:
+      - The severity (critical, warning, suggestion)
+      - The file and approximate line
+      - A clear description of the issue
+      - A suggested fix
+
+      Summarize your overall review verdict: approve, request-changes, or comment.
+    completion_schema:
+      verdict: string
+      summary: string
+    context_keys:
+      - repo
+      - pr_number
+      - focus_areas
+    transitions:
+      - condition: "payload.verdict == 'approve'"
+        target: post_approval
+        priority: 0
+      - condition: 'true'
+        target: post_review_comments
+        priority: 99
+
+  # --------------------------------------------------------------------------
+  # Phase 4: Post Review
+  # --------------------------------------------------------------------------
+
+  post_approval:
+    type: system_action
+    runtime: bash
+    command: >
+      gh pr review {{payload.pr_number}}
+      --repo {{payload.repo}}
+      --approve
+      --body "{{payload.summary}}"
+    timeout_seconds: 30
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: review_complete
+      - condition: 'true'
+        target: review_failed
+
+  post_review_comments:
+    type: system_action
+    runtime: bash
+    command: >
+      gh pr review {{payload.pr_number}}
+      --repo {{payload.repo}}
+      --comment
+      --body "{{payload.summary}}"
+    timeout_seconds: 30
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: review_complete
+      - condition: 'true'
+        target: review_failed
+
+  # --------------------------------------------------------------------------
+  # Terminal Nodes
+  # --------------------------------------------------------------------------
+
+  review_complete:
+    type: terminal
+    status: success
+    message: >
+      Code review completed for {{payload.repo}} PR #{{payload.pr_number}}.
+      Verdict: {{payload.verdict}}
+
+  review_failed:
+    type: terminal
+    status: failure
+    message: 'Code review failed for {{payload.repo}} PR #{{payload.pr_number}}.'

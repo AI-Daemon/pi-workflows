@@ -1,0 +1,311 @@
+# ==============================================================================
+# issue-first-development.yml — Full Issue-First Development Workflow (v2.0)
+# ==============================================================================
+#
+# Replicates the development-orchestrator + bug/feature reporter skill flow:
+#   1. Agent assesses the user's development intent
+#   2. System checks for existing GitHub issues (or creates one)
+#   3. Agent sets up a feature branch
+#   4. Agent implements the code changes
+#   5. System runs the test suite (bounded cycle — up to 3 attempts)
+#   6. Agent fixes failing tests (cycle back to run_tests)
+#   7. System creates a pull request
+#
+# v2.0 features demonstrated:
+#   - Bounded cycles: run_tests → fix_tests → run_tests (max_visits: 3)
+#   - extract_json: structured test output parsed from file
+#   - $metadata.visits: cycle-aware agent instructions
+#   - human_intervention: suspended terminal for budget exhaustion
+#   - Stall detection: prevents idempotent fix iterations
+
+version: '2.0'
+
+workflow_name: issue-first-development
+
+description: >
+  End-to-end issue-first development workflow with bounded test-fix cycles,
+  structured test output extraction, and human intervention fallback.
+
+initial_node: assess_intent
+
+metadata:
+  author: AI-Daemon
+  category: development
+  tags:
+    - github
+    - issue-first
+    - ci
+    - bounded-cycles
+  min_engine_version: '2.0'
+  estimated_duration: 5-15 minutes
+
+nodes:
+  # --------------------------------------------------------------------------
+  # Phase 1: Intent Assessment
+  # --------------------------------------------------------------------------
+
+  # Agent analyzes the user request to determine what kind of work is needed.
+  assess_intent:
+    type: llm_decision
+    instruction: >
+      Analyze the user's development request. Determine:
+      1. Which project/repository this is for (e.g., owner/repo format)
+      2. Whether the request requires file edits (code changes)
+      3. If edits are needed, whether this is a bug fix or a new feature
+      4. A concise description of the issue to create or search for
+
+      If no file edits are needed (e.g., a question or informational request),
+      set requires_edits to false.
+    required_schema:
+      project_name: string
+      requires_edits: boolean
+      issue_type: string
+      description: string
+    transitions:
+      - condition: 'payload.requires_edits == true'
+        target: check_existing_issue
+        priority: 0
+      - condition: 'true'
+        target: exit_informational
+        priority: 99
+
+  # --------------------------------------------------------------------------
+  # Phase 2: Issue Management
+  # --------------------------------------------------------------------------
+
+  # System action: search GitHub for existing issues matching the description.
+  check_existing_issue:
+    type: system_action
+    runtime: bash
+    command: >
+      bash workflows/scripts/check-gh-issue.sh
+      "{{payload.project_name}}"
+      "{{payload.description}}"
+    timeout_seconds: 30
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: present_existing_issues
+        priority: 0
+      - condition: 'true'
+        target: create_issue
+        priority: 1
+
+  # Agent reviews existing issues and decides whether to reuse one.
+  present_existing_issues:
+    type: llm_decision
+    instruction: >
+      Existing GitHub issues were found that may match the current request.
+
+      Search results:
+      {{payload.action_result.stdout}}
+
+      Review these issues and decide:
+      - If one matches the current task, set use_existing=true and provide the issue number.
+      - If none match, set use_existing=false to create a new issue.
+    required_schema:
+      use_existing: boolean
+      existing_issue_number: number
+    transitions:
+      - condition: 'payload.use_existing == true'
+        target: setup_branch
+        priority: 0
+      - condition: 'true'
+        target: create_issue
+        priority: 1
+
+  # System action: create a new GitHub issue.
+  create_issue:
+    type: system_action
+    runtime: bash
+    command: >
+      bash workflows/scripts/create-gh-issue.sh
+      "{{payload.project_name}}"
+      "[{{payload.issue_type}}] {{payload.description}}"
+      "{{payload.description}}"
+    timeout_seconds: 30
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: setup_branch
+        priority: 0
+      - condition: 'true'
+        target: issue_creation_failed
+        priority: 1
+
+  # --------------------------------------------------------------------------
+  # Phase 3: Branch Setup
+  # --------------------------------------------------------------------------
+
+  # System action: create and checkout a feature branch.
+  setup_branch:
+    type: system_action
+    runtime: bash
+    command: >
+      bash workflows/scripts/setup-branch.sh
+      "{{payload.issue_type}}"
+      "{{default payload.existing_issue_number '0'}}"
+    timeout_seconds: 15
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: implement_code
+      - condition: 'true'
+        target: implement_code
+
+  # --------------------------------------------------------------------------
+  # Phase 4: Implementation
+  # --------------------------------------------------------------------------
+
+  # Agent writes the code changes.
+  implement_code:
+    type: llm_task
+    instruction: >
+      Implement the code changes for project {{payload.project_name}}.
+
+      Issue context:
+      - Type: {{payload.issue_type}}
+      - Description: {{payload.description}}
+
+      Guidelines:
+      - Follow the project's coding standards
+      - Write clean, well-documented code
+      - Include appropriate error handling
+      - Ensure all existing tests still pass
+
+      When complete, report the status and list of files changed.
+    completion_schema:
+      status: string
+      files_changed: string
+      test_results: string
+    context_keys:
+      - project_name
+      - issue_type
+      - description
+    transitions:
+      - condition: "payload.status == 'complete'"
+        target: run_tests
+        priority: 0
+      - condition: 'true'
+        target: run_tests
+        priority: 99
+
+  # --------------------------------------------------------------------------
+  # Phase 5: Test-Fix Cycle (v2.0 Bounded Cycle)
+  # --------------------------------------------------------------------------
+
+  # System action: run the project test suite.
+  # max_visits: 3 — agent gets 3 attempts to fix failing tests.
+  # extract_json: structured test output is parsed into payload.extracted_json.
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'bash workflows/scripts/run-project-tests.sh /tmp/dawe/latest-test.json'
+    timeout_seconds: 120
+    max_visits: 3
+    extract_json: '/tmp/dawe/latest-test.json'
+    transitions:
+      # Tests pass → proceed to PR creation
+      - condition: 'action_result.exit_code == 0'
+        target: create_pr
+        priority: 0
+      # Tests fail and budget exhausted → human intervention
+      - condition: 'action_result.exit_code != 0 && $metadata.visits.run_tests >= 3'
+        target: human_intervention
+        priority: 1
+      # Tests fail, budget remaining → fix and retry
+      - condition: 'action_result.exit_code != 0'
+        target: fix_tests
+        priority: 2
+
+  # Agent fixes the failing tests based on structured test output.
+  # This node transitions back to run_tests, forming a bounded cycle.
+  fix_tests:
+    type: llm_task
+    instruction: >
+      Tests are failing. This is attempt {{$metadata.visits.run_tests}} of 3.
+
+      Test output log: {{payload.log_pointer_path}}
+
+      Structured test results:
+      {{json payload.extracted_json}}
+
+      Please analyze the failures and fix the code. Focus on:
+      1. Read the failing test output carefully
+      2. Identify the root cause of each failure
+      3. Make targeted fixes — do not refactor unrelated code
+      4. Verify your changes address the specific failures
+
+      Remaining attempts after this fix: {{$metadata.visits.run_tests}} used of 3 max.
+    completion_schema:
+      status: string
+      files_changed: string
+    context_keys:
+      - project_name
+      - description
+      - extracted_json
+      - log_pointer_path
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  # --------------------------------------------------------------------------
+  # Phase 6: PR Creation
+  # --------------------------------------------------------------------------
+
+  # System action: create the pull request.
+  create_pr:
+    type: system_action
+    runtime: bash
+    command: >
+      bash workflows/scripts/create-pr.sh
+      "{{payload.project_name}}"
+      "[{{payload.issue_type}}] {{payload.description}}"
+      "Closes issue. {{payload.description}}"
+    timeout_seconds: 30
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: workflow_complete
+        priority: 0
+      - condition: 'true'
+        target: pr_creation_failed
+        priority: 1
+
+  # --------------------------------------------------------------------------
+  # Terminal Nodes
+  # --------------------------------------------------------------------------
+
+  # Success: full workflow completed — issue created, code implemented, PR opened.
+  workflow_complete:
+    type: terminal
+    status: success
+    message: >
+      Development workflow completed successfully for {{payload.project_name}}.
+      Issue type: {{payload.issue_type}}
+      Description: {{payload.description}}
+
+  # Success: no file edits were required — informational request handled.
+  exit_informational:
+    type: terminal
+    status: success
+    message: 'No file edits required. Informational guidance provided for {{payload.project_name}}.'
+
+  # Failure: GitHub issue creation failed.
+  issue_creation_failed:
+    type: terminal
+    status: failure
+    message: 'Failed to create GitHub issue for {{payload.project_name}}: {{payload.description}}'
+
+  # Failure: Pull request creation failed.
+  pr_creation_failed:
+    type: terminal
+    status: failure
+    message: 'Failed to create pull request for {{payload.project_name}}.'
+
+  # Suspended: test-fix cycle budget exhausted — human review needed.
+  # The engine transitions here when run_tests has been visited max_visits
+  # times and tests are still failing.
+  human_intervention:
+    type: terminal
+    status: suspended
+    message: >
+      Tests failed after maximum retry attempts (3).
+      Human intervention is required to resolve persistent test failures
+      for {{payload.project_name}}: {{payload.description}}.

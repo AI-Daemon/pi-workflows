@@ -1,0 +1,39 @@
+# simple-task.yml — Minimal "Hello World" DAWE Workflow
+#
+# The simplest possible workflow: agent receives a task,
+# executes it, and the workflow completes. Start here
+# when learning DAWE workflow authoring.
+
+version: '1.0' # v1.0 = no cycle support needed
+workflow_name: simple-task # unique kebab-case identifier
+description: A minimal example workflow — agent receives and completes a single task.
+initial_node: get_task # execution starts here
+
+nodes:
+  # Node 1: Ask the agent what the task is
+  get_task:
+    type: llm_decision # agent makes a decision
+    instruction: 'What task would you like to accomplish? Describe the task briefly.'
+    required_schema: # fields the agent must return
+      task_description: string
+    transitions:
+      - condition: 'true' # always proceed
+        target: do_task
+
+  # Node 2: Agent executes the task
+  do_task:
+    type: llm_task # agent performs work
+    instruction: 'Execute the following task: {{payload.task_description}}'
+    completion_schema:
+      status: string
+    context_keys:
+      - task_description
+    transitions:
+      - condition: 'true'
+        target: done
+
+  # Node 3: Terminal — workflow complete
+  done:
+    type: terminal
+    status: success
+    message: 'Task completed: {{payload.task_description}}'
