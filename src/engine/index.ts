@@ -92,6 +92,10 @@ export type { RuntimeError } from './runtime-errors.js';
 export { InMemoryInstanceStore } from './instance-store.js';
 export type { InstanceStore } from './instance-store.js';
 
+// File Instance Store (Persistence)
+export { FileInstanceStore, DebouncedSaver } from './instance-store-file.js';
+export type { FileStoreOptions, PersistedInstance, RecoveryResult } from './instance-store-file.js';
+
 // Agent Message Formatter
 export { formatAgentMessage, formatStallMessage } from './agent-message-formatter.js';
 export type { CycleTransitionInfo, StallDetectionInfo } from './agent-message-formatter.js';

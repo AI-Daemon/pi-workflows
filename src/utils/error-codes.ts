@@ -277,6 +277,35 @@ export const ERROR_CODES = {
     category: 'payload',
     recoverable: false,
   },
+  'P-003': {
+    message: 'Instance file write failed',
+    category: 'payload',
+    recoverable: false,
+  },
+  'P-004': {
+    message: 'Instance directory inaccessible',
+    category: 'payload',
+    recoverable: false,
+  },
+  'P-005': {
+    message: 'Instance file corrupted — invalid JSON',
+    category: 'payload',
+    recoverable: false,
+    severity: 'warning',
+  },
+  'P-006': {
+    message: 'Instance recovery — workflow definition not found (stale)',
+    category: 'payload',
+    recoverable: false,
+    severity: 'warning',
+  },
+  'P-007': {
+    message: 'Instance recovery — file pointer lost (container restart)',
+    category: 'payload',
+    recoverable: true,
+    severity: 'warning',
+    agentHint: 'The raw log file was lost during restart. Use payload.extracted_json for structured data.',
+  },
 } as const satisfies Record<string, ErrorCodeEntry>;
 
 /** All valid error code strings. */
