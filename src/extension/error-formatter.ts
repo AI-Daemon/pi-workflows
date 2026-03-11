@@ -37,9 +37,7 @@ export function formatPayloadValidationError(
     if (err.issue === 'missing') {
       lines.push(`- \`${err.field}\` (expected: ${err.expectedType}) — MISSING`);
     } else {
-      lines.push(
-        `- \`${err.field}\` (expected: ${err.expectedType}) — got ${err.actualType ?? 'unknown'}`,
-      );
+      lines.push(`- \`${err.field}\` (expected: ${err.expectedType}) — got ${err.actualType ?? 'unknown'}`);
     }
   }
 
@@ -76,10 +74,7 @@ export function formatPayloadValidationError(
 /**
  * Format a missing required parameter error.
  */
-export function formatMissingParameterError(
-  action: string,
-  missingParams: string[],
-): string {
+export function formatMissingParameterError(action: string, missingParams: string[]): string {
   const lines: string[] = [];
 
   lines.push(`> **ERROR:** Missing required parameter(s) for action \`${action}\``);
@@ -96,10 +91,7 @@ export function formatMissingParameterError(
 /**
  * Format a workflow-not-found error with available workflow list.
  */
-export function formatWorkflowNotFoundError(
-  workflowName: string,
-  availableWorkflows: string[],
-): string {
+export function formatWorkflowNotFoundError(workflowName: string, availableWorkflows: string[]): string {
   const lines: string[] = [];
 
   lines.push(`> **ERROR:** Workflow "${workflowName}" not found.`);

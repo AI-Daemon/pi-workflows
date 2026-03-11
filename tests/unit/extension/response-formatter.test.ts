@@ -46,9 +46,7 @@ function makeInstance(overrides: Partial<WorkflowInstance> = {}): WorkflowInstan
     currentNodeId: 'node-a',
     currentNodeType: 'llm_task',
     payload: {},
-    history: [
-      { nodeId: 'node-a', nodeType: 'llm_task', enteredAt: 1000, payloadSnapshot: {} },
-    ],
+    history: [{ nodeId: 'node-a', nodeType: 'llm_task', enteredAt: 1000, payloadSnapshot: {} }],
     createdAt: 1000,
     updatedAt: 1000,
     ...overrides,

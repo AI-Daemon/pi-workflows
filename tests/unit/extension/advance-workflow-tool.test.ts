@@ -5,7 +5,6 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { WorkflowRuntime } from '../../../src/engine/workflow-runtime.js';
@@ -16,10 +15,6 @@ import type { AdvanceWorkflowInput } from '../../../src/extension/advance-workfl
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function loadFixture(name: string): string {
-  return readFileSync(resolve('tests/fixtures/workflows', name), 'utf-8');
-}
 
 /**
  * Create a test handler with a pre-populated registry.
@@ -262,8 +257,8 @@ describe('AdvanceWorkflowHandler', () => {
       });
 
       const instance = await runtime.getInstance(instanceId);
-      // Get the second node
-      const step2 = await handler.handle({
+      // Get the second node — complete the workflow
+      await handler.handle({
         action: 'advance',
         instance_id: instanceId,
         current_node_id: instance!.currentNodeId,

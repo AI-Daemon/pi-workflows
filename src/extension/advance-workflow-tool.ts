@@ -15,6 +15,7 @@
 import type { WorkflowRuntime } from '../engine/workflow-runtime.js';
 import type { WorkflowRegistry } from './workflow-registry.js';
 import type { AdvanceResult } from '../engine/advance-result.js';
+import type { WorkflowDefinition } from '../schemas/workflow.schema.js';
 
 import {
   formatListResponse,
@@ -26,11 +27,7 @@ import {
   formatActiveInstanceWarning,
 } from './response-formatter.js';
 
-import {
-  formatMissingParameterError,
-  formatWorkflowNotFoundError,
-  formatRuntimeError,
-} from './error-formatter.js';
+import { formatMissingParameterError, formatWorkflowNotFoundError, formatRuntimeError } from './error-formatter.js';
 
 import { stringify as yamlStringify } from 'yaml';
 
@@ -187,11 +184,7 @@ export class AdvanceWorkflowHandler {
       };
     }
 
-    const advanceResult = await this.runtime.advance(
-      input.instance_id!,
-      input.current_node_id!,
-      input.node_payload!,
-    );
+    const advanceResult = await this.runtime.advance(input.instance_id!, input.current_node_id!, input.node_payload!);
 
     if (!advanceResult.ok) {
       return {
@@ -312,7 +305,7 @@ export class AdvanceWorkflowHandler {
    * Re-serialize a WorkflowDefinition to YAML for loading into the runtime.
    * The runtime's loadWorkflow() parses YAML, so we serialize the definition.
    */
-  private buildMinimalYaml(definition: import('../schemas/workflow.schema.js').WorkflowDefinition): string {
+  private buildMinimalYaml(definition: WorkflowDefinition): string {
     return yamlStringify(definition);
   }
 }

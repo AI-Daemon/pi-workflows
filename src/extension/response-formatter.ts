@@ -6,8 +6,9 @@
  * determine what to do next. Format must be unambiguous.
  */
 
-import type { AdvanceResult, WorkflowInstance, SystemActionChainEntry } from '../engine/advance-result.js';
+import type { AdvanceResult, WorkflowInstance } from '../engine/advance-result.js';
 import type { RuntimeError } from '../engine/runtime-errors.js';
+import { RuntimeErrorCode } from '../engine/runtime-errors.js';
 import type { WorkflowSummary } from './workflow-registry.js';
 
 // ---------------------------------------------------------------------------
@@ -123,9 +124,7 @@ export function formatAdvanceResponse(result: AdvanceResult, workflowName: strin
     lines.push('### System Actions Executed');
     for (const entry of result.systemActionResults) {
       const icon = entry.actionResult.exit_code === 0 ? '✅' : '❌';
-      const exitInfo = entry.actionResult.timed_out
-        ? 'timed out'
-        : `exit code ${entry.actionResult.exit_code}`;
+      const exitInfo = entry.actionResult.timed_out ? 'timed out' : `exit code ${entry.actionResult.exit_code}`;
       lines.push(`- ${icon} \`${entry.nodeId}\`: ${exitInfo}`);
     }
   }
@@ -140,7 +139,11 @@ export function formatAdvanceResponse(result: AdvanceResult, workflowName: strin
 /**
  * Format an AdvanceResult for a terminal node (workflow completed).
  */
-export function formatCompletedResponse(result: AdvanceResult, workflowName: string, instance: WorkflowInstance): string {
+export function formatCompletedResponse(
+  result: AdvanceResult,
+  workflowName: string,
+  instance: WorkflowInstance,
+): string {
   const lines: string[] = [];
 
   // Header
@@ -174,9 +177,7 @@ export function formatCompletedResponse(result: AdvanceResult, workflowName: str
     lines.push('### System Actions Executed');
     for (const entry of result.systemActionResults) {
       const icon = entry.actionResult.exit_code === 0 ? '✅' : '❌';
-      const exitInfo = entry.actionResult.timed_out
-        ? 'timed out'
-        : `exit code ${entry.actionResult.exit_code}`;
+      const exitInfo = entry.actionResult.timed_out ? 'timed out' : `exit code ${entry.actionResult.exit_code}`;
       lines.push(`- ${icon} \`${entry.nodeId}\`: ${exitInfo}`);
     }
   }
@@ -264,12 +265,12 @@ export function formatErrorResponse(error: RuntimeError): string {
   lines.push('');
   lines.push(error.message);
 
-  if (error.code === 'PAYLOAD_VALIDATION_FAILED' && error.nodeId) {
+  if (error.code === RuntimeErrorCode.PAYLOAD_VALIDATION_FAILED && error.nodeId) {
     lines.push('');
     lines.push(`Please call \`advance_workflow\` again with the correct payload for node \`${error.nodeId}\`.`);
   }
 
-  if (error.code === 'NODE_MISMATCH' && error.instanceId) {
+  if (error.code === RuntimeErrorCode.NODE_MISMATCH && error.instanceId) {
     lines.push('');
     lines.push(`Please ensure you are using the correct \`current_node_id\` for instance \`${error.instanceId}\`.`);
   }
@@ -291,10 +292,7 @@ export function formatSimpleError(message: string): string {
 /**
  * Format an active instance warning.
  */
-export function formatActiveInstanceWarning(
-  activeInstanceId: string,
-  activeNodeId: string,
-): string {
+export function formatActiveInstanceWarning(activeInstanceId: string, activeNodeId: string): string {
   return [
     `> **WARNING:** You have an active workflow instance (${activeInstanceId}) on node \`${activeNodeId}\`.`,
     `> Starting a new workflow will NOT cancel the existing one.`,

@@ -128,9 +128,7 @@ export class WorkflowRegistry {
         if (result.ok) {
           const name = result.data.definition.workflow_name;
           if (this.cache.has(name)) {
-            this.warnings.push(
-              `Duplicate workflow name "${name}" — overwriting with definition from ${filePath}`,
-            );
+            this.warnings.push(`Duplicate workflow name "${name}" — overwriting with definition from ${filePath}`);
           }
           this.cache.set(name, {
             definition: result.data.definition,
