@@ -8,9 +8,9 @@
  * Target: >= 90% line coverage, >= 85% branch coverage.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { resolve, join } from 'node:path';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { SystemActionExecutor } from '../../../src/engine/system-action-executor.js';
 import { SecurityValidator, DEFAULT_BLOCKED_PATTERNS } from '../../../src/engine/security-validator.js';
@@ -48,7 +48,6 @@ function makeExecutor(overrides: Partial<ExecutorOptions> = {}): SystemActionExe
     ...overrides,
   });
 }
-
 
 // ===========================================================================
 // shellEscape tests
@@ -107,7 +106,6 @@ describe('shellEscape', () => {
     expect(escaped).toBe("'line1\nline2'");
   });
 });
-
 
 // ===========================================================================
 // SecurityValidator tests
@@ -243,7 +241,6 @@ describe('SecurityValidator', () => {
   });
 });
 
-
 // ===========================================================================
 // SystemActionExecutor — Basic execution tests
 // ===========================================================================
@@ -323,7 +320,6 @@ describe('SystemActionExecutor', () => {
     });
   });
 
-
   // =========================================================================
   // Template resolution tests
   // =========================================================================
@@ -380,7 +376,6 @@ describe('SystemActionExecutor', () => {
       }
     });
   });
-
 
   // =========================================================================
   // Shell escaping integration tests
@@ -439,7 +434,6 @@ describe('SystemActionExecutor', () => {
     });
   });
 
-
   // =========================================================================
   // Timeout tests
   // =========================================================================
@@ -492,7 +486,6 @@ describe('SystemActionExecutor', () => {
       }
     }, 15000);
   });
-
 
   // =========================================================================
   // Environment variable tests
@@ -571,7 +564,6 @@ describe('SystemActionExecutor', () => {
     });
   });
 
-
   // =========================================================================
   // Working directory tests
   // =========================================================================
@@ -626,7 +618,6 @@ describe('SystemActionExecutor', () => {
     });
   });
 
-
   // =========================================================================
   // Security validation tests (via executor)
   // =========================================================================
@@ -659,7 +650,7 @@ describe('SystemActionExecutor', () => {
       expect(result.ok).toBe(true);
     });
 
-    it('normal gh issue list → allowed', async () => {
+    it('normal gh issue list → allowed', () => {
       // gh is not installed, but validation should pass (execution may fail)
       const result = executor.validateCommand('gh issue list --repo owner/repo');
       expect(result.ok).toBe(true);
@@ -692,7 +683,6 @@ describe('SystemActionExecutor', () => {
       expect(result.ok).toBe(false);
     });
   });
-
 
   // =========================================================================
   // Output limit tests
@@ -734,7 +724,6 @@ describe('SystemActionExecutor', () => {
       }
     }, 30000);
   });
-
 
   // =========================================================================
   // Node.js runtime execution tests
@@ -794,7 +783,6 @@ describe('SystemActionExecutor', () => {
     });
   });
 
-
   // =========================================================================
   // Dry-run mode tests (P1)
   // =========================================================================
@@ -834,7 +822,6 @@ describe('SystemActionExecutor', () => {
     });
   });
 
-
   // =========================================================================
   // Streaming output tests (P1)
   // =========================================================================
@@ -864,7 +851,6 @@ describe('SystemActionExecutor', () => {
       expect(chunks.join('')).toContain('err');
     });
   });
-
 
   // =========================================================================
   // Retry logic tests (P1)
@@ -925,7 +911,6 @@ describe('SystemActionExecutor', () => {
       }
     });
   });
-
 
   // =========================================================================
   // Fixture script tests
@@ -997,7 +982,6 @@ describe('SystemActionExecutor', () => {
     }, 30000);
   });
 
-
   // =========================================================================
   // Edge cases
   // =========================================================================
@@ -1016,7 +1000,7 @@ describe('SystemActionExecutor', () => {
     });
 
     it('command that outputs a JSON array', async () => {
-      const node = makeNode({ command: 'echo \'[1, 2, 3]\'' });
+      const node = makeNode({ command: "echo '[1, 2, 3]'" });
       const result = await executor.execute(node, makeContext());
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -1067,6 +1051,5 @@ describe('SystemActionExecutor', () => {
     });
   });
 
-// close outer describe
+  // close outer describe
 });
-

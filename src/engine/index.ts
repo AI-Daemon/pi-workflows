@@ -60,12 +60,7 @@ export type { TemplateError } from './template-engine.js';
 
 // System Action Executor
 export { SystemActionExecutor } from './system-action-executor.js';
-export type {
-  ExecutorActionResult,
-  ExecutorOptions,
-  StreamingCallbacks,
-  RetryConfig,
-} from './action-result.js';
+export type { ExecutorActionResult, ExecutorOptions, StreamingCallbacks, RetryConfig } from './action-result.js';
 export { SecurityValidator, DEFAULT_BLOCKED_PATTERNS } from './security-validator.js';
 export type { SecurityError, SecurityErrorCode } from './security-validator.js';
 export { shellEscape } from './shell-escape.js';

@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SystemActionExecutor } from '../../src/engine/system-action-executor.js';
@@ -42,7 +42,6 @@ afterEach(() => {
   }
   tempDirs.length = 0;
 });
-
 
 describe('SystemActionExecutor integration', () => {
   it('execute a real bash script file → correct output', () => {
@@ -119,7 +118,6 @@ describe('SystemActionExecutor integration', () => {
     }
   });
 
-
   it('chain: system_action → capture result → template into next command', async () => {
     const dir = makeTempDir();
     const executor = new SystemActionExecutor({ workingDir: dir });
@@ -195,4 +193,3 @@ describe('SystemActionExecutor integration', () => {
     }
   });
 });
-

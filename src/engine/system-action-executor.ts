@@ -21,12 +21,7 @@ import { resolve } from 'node:path';
 import type { SystemActionNode } from '../schemas/workflow.schema.js';
 import type { ExpressionContext } from './expression-context.js';
 import type { Result } from '../utils/result.js';
-import type {
-  ExecutorActionResult,
-  ExecutorOptions,
-  StreamingCallbacks,
-  RetryConfig,
-} from './action-result.js';
+import type { ExecutorActionResult, ExecutorOptions, StreamingCallbacks, RetryConfig } from './action-result.js';
 import { SecurityValidator, type SecurityError } from './security-validator.js';
 import { shellEscape } from './shell-escape.js';
 import { resolveTemplate } from './template-engine.js';
@@ -121,9 +116,7 @@ function escapePayloadValues(obj: Record<string, unknown>): Record<string, unkno
       escaped[key] = escapePayloadValues(value as Record<string, unknown>);
     } else if (Array.isArray(value)) {
       escaped[key] = value.map((v) =>
-        typeof v === 'object' && v !== null
-          ? escapePayloadValues(v as Record<string, unknown>)
-          : shellEscape(v),
+        typeof v === 'object' && v !== null ? escapePayloadValues(v as Record<string, unknown>) : shellEscape(v),
       );
     } else {
       escaped[key] = shellEscape(value);
@@ -250,14 +243,7 @@ export class SystemActionExecutor {
     const env = this.buildEnv(node, context);
 
     // 6. Execute
-    const result = await this.spawnCommand(
-      node.runtime,
-      resolvedCommand,
-      workDir,
-      env,
-      timeoutMs,
-      callbacks,
-    );
+    const result = await this.spawnCommand(node.runtime, resolvedCommand, workDir, env, timeoutMs, callbacks);
 
     return { ok: true, data: result };
   }
@@ -278,10 +264,7 @@ export class SystemActionExecutor {
    * Returns an `ExecutorActionResult` with `exit_code: 0`, empty stdout/stderr,
    * and `command_executed` set to the resolved command string.
    */
-  dryRun(
-    node: SystemActionNode,
-    context: ExpressionContext,
-  ): Result<ExecutorActionResult, SecurityError> {
+  dryRun(node: SystemActionNode, context: ExpressionContext): Result<ExecutorActionResult, SecurityError> {
     // 1. Validate the raw template
     const validationResult = this.validateCommand(node.command);
     if (!validationResult.ok) {
@@ -392,10 +375,7 @@ export class SystemActionExecutor {
    * 3. Node-specific env (overrides base)
    * 4. Auto-injected DAWE_* variables
    */
-  private buildEnv(
-    node: SystemActionNode,
-    context: ExpressionContext,
-  ): Record<string, string> {
+  private buildEnv(node: SystemActionNode, context: ExpressionContext): Record<string, string> {
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
       ...(this.options.env ?? {}),
@@ -403,14 +383,17 @@ export class SystemActionExecutor {
     };
 
     // Auto-inject DAWE variables
-    if (context.metadata?.['workflow_name']) {
-      env['DAWE_WORKFLOW_NAME'] = String(context.metadata['workflow_name']);
+    const wfName = context.metadata?.['workflow_name'];
+    if (typeof wfName === 'string' || typeof wfName === 'number') {
+      env['DAWE_WORKFLOW_NAME'] = String(wfName);
     }
-    if (context.metadata?.['node_id']) {
-      env['DAWE_NODE_ID'] = String(context.metadata['node_id']);
+    const nodeId = context.metadata?.['node_id'];
+    if (typeof nodeId === 'string' || typeof nodeId === 'number') {
+      env['DAWE_NODE_ID'] = String(nodeId);
     }
-    if (context.metadata?.['instance_id']) {
-      env['DAWE_INSTANCE_ID'] = String(context.metadata['instance_id']);
+    const instId = context.metadata?.['instance_id'];
+    if (typeof instId === 'string' || typeof instId === 'number') {
+      env['DAWE_INSTANCE_ID'] = String(instId);
     }
 
     return env;
@@ -456,8 +439,8 @@ export class SystemActionExecutor {
         detached: true, // Create a new process group for clean kill
       });
 
-      let stdoutChunks: Buffer[] = [];
-      let stderrChunks: Buffer[] = [];
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
       let stdoutSize = 0;
       let stderrSize = 0;
       let stdoutTruncated = false;
