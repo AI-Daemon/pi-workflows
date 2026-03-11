@@ -41,9 +41,11 @@ import { ExpressionEvaluator } from './expression-evaluator.js';
 import { PayloadManager } from './payload-manager.js';
 import { SystemActionExecutor } from './system-action-executor.js';
 import { resolveTemplate } from './template-engine.js';
-import { formatAgentMessage } from './agent-message-formatter.js';
+import { formatAgentMessage, formatStallMessage } from './agent-message-formatter.js';
 import { extractJson } from './json-extractor.js';
-import type { CycleTransitionInfo } from './agent-message-formatter.js';
+import { StallDetector } from './stall-detector.js';
+import type { CycleTransitionInfo, StallDetectionInfo } from './agent-message-formatter.js';
+import type { StallDetectorOptions } from './stall-detector.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,6 +59,8 @@ export interface RuntimeOptions {
   maxChainLength?: number;
   /** Pluggable persistence backend (default: InMemoryInstanceStore). */
   instanceStore?: InstanceStore;
+  /** Options passed to StallDetector. */
+  stallDetectorOptions?: StallDetectorOptions;
 }
 
 /** Internal representation of a loaded workflow. */
@@ -87,6 +91,7 @@ export class WorkflowRuntime extends EventEmitter {
   private readonly executor: SystemActionExecutor;
   private readonly evaluator: ExpressionEvaluator;
   private readonly maxChainLength: number;
+  private readonly stallDetector: StallDetector;
 
   constructor(options?: RuntimeOptions) {
     super();
@@ -94,6 +99,7 @@ export class WorkflowRuntime extends EventEmitter {
     this.executor = new SystemActionExecutor(options?.executorOptions);
     this.evaluator = new ExpressionEvaluator();
     this.maxChainLength = options?.maxChainLength ?? 20;
+    this.stallDetector = new StallDetector(options?.stallDetectorOptions);
   }
 
   // -----------------------------------------------------------------------
@@ -301,7 +307,7 @@ export class WorkflowRuntime extends EventEmitter {
       ...($metadata ? { $metadata } : {}),
     };
 
-    // Evaluate transitions with max_visits enforcement
+    // Evaluate transitions with max_visits enforcement and stall detection
     const transitionTarget = await this.evaluateTransitionsWithBudget(
       currentNode.type !== 'terminal' ? currentNode.transitions : [],
       context,
@@ -312,6 +318,11 @@ export class WorkflowRuntime extends EventEmitter {
 
     if (!transitionTarget.ok) {
       return transitionTarget;
+    }
+
+    // Handle stall detection — suspend the instance immediately
+    if (transitionTarget.data.stallInfo) {
+      return this.suspendForStall(instance, definition, transitionTarget.data.stallInfo);
     }
 
     const targetNodeId = transitionTarget.data.targetNodeId;
@@ -455,7 +466,7 @@ export class WorkflowRuntime extends EventEmitter {
           ...($metadata ? { $metadata } : {}),
         };
 
-        // Evaluate transitions with budget enforcement
+        // Evaluate transitions with budget enforcement and stall detection
         const transitionTarget = await this.evaluateTransitionsWithBudget(
           node.transitions,
           context,
@@ -466,6 +477,11 @@ export class WorkflowRuntime extends EventEmitter {
 
         if (!transitionTarget.ok) {
           return transitionTarget;
+        }
+
+        // Handle stall detection — suspend the instance immediately
+        if (transitionTarget.data.stallInfo) {
+          return this.suspendForStall(instance, definition, transitionTarget.data.stallInfo);
         }
 
         const targetNodeId = transitionTarget.data.targetNodeId;
@@ -563,11 +579,12 @@ export class WorkflowRuntime extends EventEmitter {
   // -----------------------------------------------------------------------
 
   /**
-   * Evaluate transitions with max_visits budget enforcement.
+   * Evaluate transitions with max_visits budget enforcement and stall detection.
    *
    * For each matching transition, checks whether the target node has
-   * `max_visits` and whether the budget is exhausted. If all transitions
-   * are blocked, looks for a suspended terminal fallback.
+   * `max_visits` and whether the budget is exhausted. For cycle back-edges,
+   * runs the stall detector to check for idempotent iterations.
+   * If all transitions are blocked, looks for a suspended terminal fallback.
    */
   private async evaluateTransitionsWithBudget(
     transitions: Array<{ condition: string; target: string; priority?: number | undefined }>,
@@ -575,7 +592,9 @@ export class WorkflowRuntime extends EventEmitter {
     instance: WorkflowInstance,
     definition: WorkflowDefinition,
     fromNodeId: string,
-  ): Promise<Result<{ targetNodeId: string; cycleInfo?: CycleTransitionInfo }, RuntimeError>> {
+  ): Promise<
+    Result<{ targetNodeId: string; cycleInfo?: CycleTransitionInfo; stallInfo?: StallDetectionInfo }, RuntimeError>
+  > {
     const $metadata = instance.payload['$metadata'] as WorkflowMetadata | undefined;
 
     // Sort by priority (ascending)
@@ -611,6 +630,32 @@ export class WorkflowRuntime extends EventEmitter {
           if (currentVisits >= targetNodeDef.max_visits) {
             // Budget exhausted for this target — skip this transition
             continue;
+          }
+
+          // This is a cycle back-edge if the target has been visited before
+          if (currentVisits >= 1) {
+            // Run stall detection for v2.0 workflows when there's action output to hash
+            const isV2 = definition.version === '2.0';
+            const hasActionResult = instance.payload['action_result'] != null;
+            if (isV2 && hasActionResult) {
+              const stallResult = await this.performStallCheck(
+                instance,
+                definition,
+                fromNodeId,
+                targetNodeId,
+                currentVisits,
+                targetNodeDef.max_visits,
+                $metadata,
+              );
+
+              if (stallResult) {
+                // Stall detected — return the stall info for the caller to handle
+                return {
+                  ok: true,
+                  data: { targetNodeId, stallInfo: stallResult },
+                };
+              }
+            }
           }
 
           // Build cycle info for agent messaging
@@ -683,6 +728,119 @@ export class WorkflowRuntime extends EventEmitter {
     };
     this.emit('error', instance.instanceId, error);
     return { ok: false, errors: error };
+  }
+
+  // -----------------------------------------------------------------------
+  // Internal: Stall detection
+  // -----------------------------------------------------------------------
+
+  /**
+   * Perform a stall check before traversing a cycle back-edge.
+   *
+   * Extracts the last action output from the payload and runs the stall detector.
+   * If no stall is detected, stores the current hash in `$metadata.state_hashes`.
+   *
+   * @returns StallDetectionInfo if stalled, undefined if not stalled.
+   */
+  private async performStallCheck(
+    instance: WorkflowInstance,
+    definition: WorkflowDefinition,
+    fromNodeId: string,
+    targetNodeId: string,
+    currentVisits: number,
+    maxVisits: number,
+    $metadata: WorkflowMetadata,
+  ): Promise<StallDetectionInfo | undefined> {
+    // Get the last action output from payload
+    const actionResult = instance.payload['action_result'] as { stdout?: string; stderr?: string } | undefined;
+    const actionOutput = actionResult ? `${actionResult.stdout ?? ''}${actionResult.stderr ?? ''}` : '';
+
+    const previousHashes = $metadata.state_hashes ?? [];
+
+    try {
+      const stallResult = await this.stallDetector.check(previousHashes, actionOutput);
+
+      if (stallResult.stalled) {
+        // Determine which iteration matched
+        const matchedIndex = previousHashes.indexOf(stallResult.matchedPreviousHash!);
+        const matchedIteration = matchedIndex + 1;
+
+        // Set stall_detected in $metadata
+        $metadata.stall_detected = true;
+
+        // Emit informational error event
+        const error: RuntimeError = {
+          code: RuntimeErrorCode.STALL_DETECTED,
+          message: `Stall detected: workspace state hash sha256:${stallResult.currentHash} matches iteration ${matchedIteration}. Zero functional progress in ${fromNodeId} → ${targetNodeId} cycle.`,
+          instanceId: instance.instanceId,
+          nodeId: fromNodeId,
+        };
+        this.emit('error', instance.instanceId, error);
+
+        return {
+          instanceId: instance.instanceId,
+          sourceNodeId: fromNodeId,
+          targetNodeId,
+          visitCount: currentVisits,
+          maxVisits,
+          stateHash: stallResult.currentHash,
+          matchedIteration,
+        };
+      }
+
+      // No stall — store the current hash
+      $metadata.state_hashes.push(stallResult.currentHash);
+      return undefined;
+    } catch {
+      // Stall detection failure is non-fatal — log warning and continue
+      return undefined;
+    }
+  }
+
+  /**
+   * Suspend an instance due to stall detection.
+   *
+   * Sets the instance status to 'suspended', builds the stall agent message,
+   * and persists the instance.
+   *
+   * @param instance - The workflow instance.
+   * @param definition - The workflow definition.
+   * @param stallInfo - The stall detection info.
+   * @returns An AdvanceResult with suspended status and stall message.
+   */
+  private async suspendForStall(
+    instance: WorkflowInstance,
+    definition: WorkflowDefinition,
+    stallInfo: StallDetectionInfo,
+  ): Promise<Result<AdvanceResult, RuntimeError>> {
+    const now = Date.now();
+
+    // Set instance to suspended status
+    instance.status = 'suspended';
+    instance.terminalStatus = 'suspended';
+    instance.completedAt = now;
+    instance.updatedAt = now;
+
+    // Mark current node completed in history
+    const historyEntry = instance.history[instance.history.length - 1];
+    if (historyEntry && historyEntry.nodeId === instance.currentNodeId) {
+      historyEntry.completedAt = now;
+    }
+
+    // Format the stall agent message
+    const agentMessage = formatStallMessage(stallInfo, definition.workflow_name);
+
+    const advanceResult: AdvanceResult = {
+      instanceId: instance.instanceId,
+      status: 'suspended',
+      terminalStatus: 'suspended',
+      agentMessage,
+    };
+
+    await this.store.save(instance);
+    this.emit('instance:completed', instance.instanceId, 'suspended');
+
+    return { ok: true, data: advanceResult };
   }
 
   // -----------------------------------------------------------------------

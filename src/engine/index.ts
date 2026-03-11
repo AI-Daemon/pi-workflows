@@ -93,5 +93,9 @@ export { InMemoryInstanceStore } from './instance-store.js';
 export type { InstanceStore } from './instance-store.js';
 
 // Agent Message Formatter
-export { formatAgentMessage } from './agent-message-formatter.js';
-export type { CycleTransitionInfo } from './agent-message-formatter.js';
+export { formatAgentMessage, formatStallMessage } from './agent-message-formatter.js';
+export type { CycleTransitionInfo, StallDetectionInfo } from './agent-message-formatter.js';
+
+// Stall Detector
+export { StallDetector } from './stall-detector.js';
+export type { StallDetectorOptions, StallCheckResult } from './stall-detector.js';

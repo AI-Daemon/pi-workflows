@@ -32,6 +32,24 @@ export interface CycleTransitionInfo {
   maxVisits: number;
 }
 
+/** Stall detection info for agent message formatting. */
+export interface StallDetectionInfo {
+  /** The instance ID. */
+  instanceId: string;
+  /** The source node (where the back-edge originates). */
+  sourceNodeId: string;
+  /** The target node (the back-edge target that was stalled). */
+  targetNodeId: string;
+  /** Current visit count for the source node. */
+  visitCount: number;
+  /** Maximum visits allowed for the target node. */
+  maxVisits: number;
+  /** The SHA-256 hash of the stalled state. */
+  stateHash: string;
+  /** Which iteration matched the current hash. */
+  matchedIteration: number;
+}
+
 /**
  * Format an AdvanceResult into the agent-facing markdown message.
  *
@@ -101,6 +119,28 @@ export function formatAgentMessage(
       lines.push(`> MESSAGE: ${result.terminalMessage}`);
     }
   }
+
+  return lines.join('\n');
+}
+
+/**
+ * Format a stall detection message for the agent.
+ *
+ * @param info - Stall detection details.
+ * @param workflowName - The workflow name for the header.
+ * @returns Formatted markdown string.
+ */
+export function formatStallMessage(info: StallDetectionInfo, workflowName: string): string {
+  const lines: string[] = [];
+
+  lines.push(`> WORKFLOW: ${workflowName} (instance ${info.instanceId})`);
+  lines.push(`> STALL DETECTED. The workspace state is identical to a previous iteration.`);
+  lines.push(`> The agent has made zero functional progress in the ${info.sourceNodeId} → ${info.targetNodeId} cycle.`);
+  lines.push(`> WORKFLOW SUSPENDED for human review.`);
+  lines.push(`> Instance ID: ${info.instanceId}`);
+  lines.push(`> Stalled at: ${info.sourceNodeId} (visit ${info.visitCount} of ${info.maxVisits})`);
+  lines.push(`> State hash: sha256:${info.stateHash}`);
+  lines.push(`> Previous match: iteration ${info.matchedIteration}`);
 
   return lines.join('\n');
 }

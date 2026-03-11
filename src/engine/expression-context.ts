@@ -35,6 +35,8 @@ export interface WorkflowMetadata {
   instance_id: string;
   /** ISO 8601 timestamp when the instance was started. */
   started_at: string;
+  /** Whether a stall was detected in a bounded cycle (set by DAWE-017). */
+  stall_detected?: boolean;
 }
 
 /**
