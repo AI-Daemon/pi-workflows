@@ -2,7 +2,8 @@
  * Engine barrel export.
  *
  * Re-exports the DAG parser, graph types, validators, visualization
- * helpers, expression evaluator, and the composite validation function.
+ * helpers, expression evaluator, composite validation, payload manager,
+ * template engine, and system action executor.
  */
 
 // DAG Graph types
@@ -56,3 +57,10 @@ export type { PayloadHistoryEntry } from './payload-history.js';
 // Template Engine
 export { resolveTemplate } from './template-engine.js';
 export type { TemplateError } from './template-engine.js';
+
+// System Action Executor
+export { SystemActionExecutor } from './system-action-executor.js';
+export type { ExecutorActionResult, ExecutorOptions, StreamingCallbacks, RetryConfig } from './action-result.js';
+export { SecurityValidator, DEFAULT_BLOCKED_PATTERNS } from './security-validator.js';
+export type { SecurityError, SecurityErrorCode } from './security-validator.js';
+export { shellEscape } from './shell-escape.js';
