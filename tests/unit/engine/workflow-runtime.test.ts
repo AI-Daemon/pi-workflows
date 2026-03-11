@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { WorkflowRuntime, RuntimeErrorCode } from '../../../src/engine/index.js';
 import type { RuntimeOptions, WorkflowInstance } from '../../../src/engine/index.js';
@@ -1676,5 +1676,421 @@ nodes:
       expect(adv2.data.status).toBe('completed');
       expect(adv2.data.terminalStatus).toBe('success');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DAWE-016: Context Management — File Pointers & Structured Error Extraction
+// ---------------------------------------------------------------------------
+
+describe('WorkflowRuntime — File Pointers & extract_json (DAWE-016)', () => {
+  const FILE_POINTER_DIR = '/tmp/dawe-runs';
+
+  let runtime: WorkflowRuntime;
+
+  beforeEach(() => {
+    runtime = createRuntime();
+  });
+
+  it('v2.0 system_action with extract_json → payload.extracted_json populated', async () => {
+    // Create a temp JSON file for extract_json to read
+    const tmpJsonPath = '/tmp/dawe-test-extract.json';
+    writeFileSync(tmpJsonPath, JSON.stringify({ numFailed: 2, errors: ['err1', 'err2'] }), 'utf-8');
+
+    const yaml = `
+version: '2.0'
+workflow_name: extract-json-test
+description: Test extract_json integration.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "test output"'
+    timeout_seconds: 10
+    extract_json: '${tmpJsonPath}'
+    max_visits: 3
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: check
+
+  check:
+    type: llm_task
+    instruction: 'Check results. Extracted: {{payload.extracted_json}}'
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const adv = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv.ok).toBe(true);
+    if (!adv.ok) return;
+
+    // Should be at 'check' node now, with extracted_json in payload
+    expect(adv.data.currentNodeId).toBe('check');
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    expect(instance!.payload['extracted_json']).toBeDefined();
+    expect((instance!.payload['extracted_json'] as Record<string, unknown>)['numFailed']).toBe(2);
+  });
+
+  it('v2.0 system_action → payload.log_pointer_path set', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: log-pointer-test
+description: Test log pointer path.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_cmd
+
+  run_cmd:
+    type: system_action
+    runtime: bash
+    command: 'echo "hello from system action"'
+    timeout_seconds: 10
+    max_visits: 3
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: next
+
+  next:
+    type: llm_task
+    instruction: 'Log is at: {{payload.log_pointer_path}}'
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const adv = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv.ok).toBe(true);
+    if (!adv.ok) return;
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    expect(instance!.payload['log_pointer_path']).toBeDefined();
+    const logPath = instance!.payload['log_pointer_path'] as string;
+    expect(logPath).toContain('/tmp/dawe-runs/');
+    expect(existsSync(logPath)).toBe(true);
+  });
+
+  it('{{$metadata.visits.run_tests}} resolves correctly in instruction templates', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: metadata-template-test
+description: Test $metadata in templates.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'exit 1'
+    timeout_seconds: 10
+    max_visits: 5
+    transitions:
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: 'Fix attempt {{$metadata.visits.run_tests}} of 5. Check log at {{payload.log_pointer_path}}'
+    completion_schema:
+      status: string
+    max_visits: 5
+    transitions:
+      - condition: "payload.status == 'retry'"
+        target: run_tests
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+
+    // Instruction should contain the visit count "1"
+    expect(adv1.data.instruction).toContain('Fix attempt 1 of 5');
+
+    // fix → run_tests (visit 2) → fix
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retry' });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+
+    // Instruction should now contain "2"
+    expect(adv2.data.instruction).toContain('Fix attempt 2 of 5');
+  });
+
+  it('terminal reached → file pointer logs cleaned up', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: cleanup-test
+description: Test log cleanup on terminal.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_cmd
+
+  run_cmd:
+    type: system_action
+    runtime: bash
+    command: 'echo "output for cleanup test"'
+    timeout_seconds: 10
+    max_visits: 3
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_cmd → done
+    const adv = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv.ok).toBe(true);
+    if (!adv.ok) return;
+
+    expect(adv.data.status).toBe('completed');
+
+    // File pointer logs should have been cleaned up
+    const instanceId = startResult.data.instanceId;
+    if (existsSync(FILE_POINTER_DIR)) {
+      const remaining = readdirSync(FILE_POINTER_DIR).filter((f: string) => f.startsWith(`${instanceId}-`));
+      expect(remaining.length).toBe(0);
+    }
+  });
+
+  it('v2.0 system_action with extract_json pointing to invalid JSON → fallback to pointer only', async () => {
+    const tmpInvalidPath = '/tmp/dawe-test-invalid-extract.txt';
+    writeFileSync(tmpInvalidPath, 'this is not json {{{{', 'utf-8');
+
+    const yaml = `
+version: '2.0'
+workflow_name: invalid-extract-test
+description: Test invalid extract_json fallback.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "test"'
+    timeout_seconds: 10
+    extract_json: '${tmpInvalidPath}'
+    max_visits: 3
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: check
+
+  check:
+    type: llm_task
+    instruction: 'Check.'
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const adv = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv.ok).toBe(true);
+    if (!adv.ok) return;
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    // extracted_json should be null on failure
+    expect(instance!.payload['extracted_json']).toBeNull();
+    // log_pointer_path should still be set
+    expect(instance!.payload['log_pointer_path']).toBeDefined();
+  });
+
+  it('v2.0 system_action without extract_json → no payload.extracted_json set', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: no-extract-test
+description: Test no extract_json.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_cmd
+
+  run_cmd:
+    type: system_action
+    runtime: bash
+    command: 'echo "no extract"'
+    timeout_seconds: 10
+    max_visits: 3
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: check
+
+  check:
+    type: llm_task
+    instruction: 'Check.'
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const adv = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv.ok).toBe(true);
+    if (!adv.ok) return;
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    // extracted_json should NOT be set since node doesn't have extract_json
+    expect(instance!.payload['extracted_json']).toBeUndefined();
+    // log_pointer_path SHOULD be set (v2.0 always writes file pointer)
+    expect(instance!.payload['log_pointer_path']).toBeDefined();
+  });
+
+  it('v1.0 workflow → no file pointers generated (backward compat)', async () => {
+    const yaml = `
+version: '1.0'
+workflow_name: v1-no-pointer-test
+description: v1.0 backward compat.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_decision
+    instruction: Go.
+    required_schema:
+      ok: string
+    transitions:
+      - condition: 'true'
+        target: run_cmd
+
+  run_cmd:
+    type: system_action
+    runtime: bash
+    command: 'echo "v1 output"'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const adv = await runtime.advance(startResult.data.instanceId, 'start', { ok: 'yes' });
+    expect(adv.ok).toBe(true);
+    if (!adv.ok) return;
+
+    // v1.0 should NOT have log_pointer_path
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    expect(instance!.payload['log_pointer_path']).toBeUndefined();
+    expect(instance!.payload['extracted_json']).toBeUndefined();
   });
 });

@@ -61,10 +61,15 @@ export type { TemplateError } from './template-engine.js';
 
 // System Action Executor
 export { SystemActionExecutor } from './system-action-executor.js';
+export { FILE_POINTER_DIR } from './system-action-executor.js';
 export type { ExecutorActionResult, ExecutorOptions, StreamingCallbacks, RetryConfig } from './action-result.js';
 export { SecurityValidator, DEFAULT_BLOCKED_PATTERNS } from './security-validator.js';
 export type { SecurityError, SecurityErrorCode } from './security-validator.js';
 export { shellEscape } from './shell-escape.js';
+
+// JSON Extractor
+export { extractJson } from './json-extractor.js';
+export type { JsonExtractionResult } from './json-extractor.js';
 
 // Workflow Runtime Engine
 export { WorkflowRuntime } from './workflow-runtime.js';

@@ -15,8 +15,8 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, statSync, mkdirSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 
 import type { SystemActionNode } from '../schemas/workflow.schema.js';
 import type { ExpressionContext } from './expression-context.js';
@@ -41,6 +41,9 @@ const TRUNCATION_MARKER = '\n[TRUNCATED]';
 
 /** Grace period after SIGTERM before SIGKILL (ms). */
 const SIGKILL_GRACE_MS = 5_000;
+
+/** Directory for file pointer logs. */
+export const FILE_POINTER_DIR = '/tmp/dawe-runs';
 
 /** Default executor options. */
 const DEFAULT_OPTIONS: ExecutorOptions = {
@@ -246,6 +249,86 @@ export class SystemActionExecutor {
     const result = await this.spawnCommand(node.runtime, resolvedCommand, workDir, env, timeoutMs, callbacks);
 
     return { ok: true, data: result };
+  }
+
+  /**
+   * Write a file pointer log for a system_action execution.
+   *
+   * Streams full stdout + stderr to a structured log file at:
+   *   /tmp/dawe-runs/<instanceId>-<nodeId>-<visitCount>.log
+   *
+   * @param instanceId - The workflow instance ID.
+   * @param nodeId - The system_action node ID.
+   * @param visitCount - The current visit count for this node.
+   * @param command - The resolved command that was executed.
+   * @param result - The execution result.
+   * @returns The file path of the written log, or null on failure.
+   */
+  writeFilePointerLog(
+    instanceId: string,
+    nodeId: string,
+    visitCount: number,
+    command: string,
+    result: ExecutorActionResult,
+  ): string | null {
+    try {
+      const dir = FILE_POINTER_DIR;
+      mkdirSync(dir, { recursive: true });
+
+      const fileName = `${instanceId}-${nodeId}-${visitCount}.log`;
+      const filePath = join(dir, fileName);
+
+      const content = [
+        '=== DAWE System Action Log ===',
+        `Instance: ${instanceId}`,
+        `Node: ${nodeId}`,
+        `Visit: ${visitCount}`,
+        `Command: ${command}`,
+        `Exit Code: ${result.exit_code}`,
+        `Timestamp: ${new Date().toISOString()}`,
+        '',
+        '=== STDOUT ===',
+        result.stdout,
+        '',
+        '=== STDERR ===',
+        result.stderr,
+      ].join('\n');
+
+      writeFileSync(filePath, content, 'utf-8');
+      return filePath;
+    } catch {
+      // Log pointer write failed — non-fatal
+      return null;
+    }
+  }
+
+  /**
+   * Clean up all file pointer logs for a given instance.
+   *
+   * Called when a workflow instance reaches a terminal state.
+   *
+   * @param instanceId - The workflow instance ID.
+   * @returns The number of files cleaned up, or -1 on failure.
+   */
+  cleanupFilePointerLogs(instanceId: string): number {
+    try {
+      const dir = FILE_POINTER_DIR;
+      if (!existsSync(dir)) return 0;
+
+      const files = readdirSync(dir).filter((f) => f.startsWith(`${instanceId}-`));
+      let cleaned = 0;
+      for (const file of files) {
+        try {
+          unlinkSync(join(dir, file));
+          cleaned++;
+        } catch {
+          // Individual file cleanup failure — continue
+        }
+      }
+      return cleaned;
+    } catch {
+      return -1;
+    }
   }
 
   /**
