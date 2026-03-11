@@ -114,3 +114,28 @@ export type {
 
 // Result utility type
 export type { Result } from './utils/index.js';
+
+// Extension module — Pi extension tool wrapper (advance_workflow)
+export { default as piWorkflowsExtension } from './extension/index.js';
+export {
+  WorkflowRegistry,
+  AdvanceWorkflowHandler,
+  formatListResponse,
+  formatAdvanceResponse,
+  formatCompletedResponse,
+  formatStatusResponse,
+  formatCancelResponse,
+  formatErrorResponse,
+  formatSimpleError,
+  formatActiveInstanceWarning,
+  formatPayloadValidationError,
+  formatMissingParameterError,
+  formatWorkflowNotFoundError,
+  formatRuntimeError,
+} from './extension/index.js';
+export type {
+  WorkflowSummary,
+  AdvanceWorkflowInput,
+  AdvanceWorkflowOutput,
+  PayloadFieldError,
+} from './extension/index.js';
