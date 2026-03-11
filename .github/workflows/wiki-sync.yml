@@ -1,0 +1,112 @@
+name: Sync docs/ to Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+
+permissions:
+  contents: write
+
+jobs:
+  sync-wiki:
+    name: Sync docs/ → Wiki
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout wiki
+        run: |
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git" wiki
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync docs/ to wiki
+        run: |
+          set -euo pipefail
+
+          DOCS_DIR="docs"
+          WIKI_DIR="wiki"
+
+          # ── Helper: convert a docs/ file path to a wiki page name ──
+          # GitHub Wiki is flat (no subdirectories). We use a naming
+          # convention that encodes the folder structure:
+          #
+          #   docs/foo.md              → foo.md
+          #   docs/adr/001-decision.md → adr--001-decision.md
+          #   docs/adr/_index.md       → adr.md          (folder note)
+          #   docs/adr/README.md       → adr.md          (folder note)
+          #
+          wiki_name() {
+            local rel="$1"                         # path relative to docs/
+
+            local dir base
+            dir="$(dirname "$rel")"
+            base="$(basename "$rel")"
+
+            # Folder notes: _index.md or README.md become the folder's page
+            if [[ "$base" == "_index.md" || "$base" == "README.md" ]]; then
+              if [[ "$dir" == "." ]]; then
+                # docs/_index.md → Home.md (wiki landing page)
+                echo "Home.md"
+              else
+                # docs/adr/_index.md → adr.md
+                echo "${dir//\//--.md}"
+                return
+              fi
+              return
+            fi
+
+            if [[ "$dir" == "." ]]; then
+              echo "$base"
+            else
+              # Encode directory separators as double-dash
+              echo "${dir//\//--}--${base}"
+            fi
+          }
+
+          # ── Build a manifest of expected wiki pages ──
+          declare -A EXPECTED_PAGES
+
+          while IFS= read -r -d '' file; do
+            rel="${file#$DOCS_DIR/}"
+            target="$(wiki_name "$rel")"
+            EXPECTED_PAGES["$target"]=1
+
+            mkdir -p "$(dirname "$WIKI_DIR/$target")"
+            cp "$file" "$WIKI_DIR/$target"
+            echo "  synced: $rel → $target"
+          done < <(find "$DOCS_DIR" -name '*.md' -print0)
+
+          # ── Remove wiki pages that no longer have a docs/ source ──
+          # Only remove pages that match the naming convention (contain --)
+          # or were previously synced. Never remove hand-created wiki pages.
+          if [[ -f "$WIKI_DIR/.sync-manifest" ]]; then
+            while IFS= read -r old_page; do
+              if [[ -z "${EXPECTED_PAGES[$old_page]+_}" ]]; then
+                echo "  removed: $old_page (no longer in docs/)"
+                rm -f "$WIKI_DIR/$old_page"
+              fi
+            done < "$WIKI_DIR/.sync-manifest"
+          fi
+
+          # ── Write new manifest ──
+          printf '%s\n' "${!EXPECTED_PAGES[@]}" | sort > "$WIKI_DIR/.sync-manifest"
+
+      - name: Push wiki changes
+        run: |
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No wiki changes to push."
+          else
+            git commit -m "docs: sync from docs/ ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+            git push
+            echo "Wiki updated successfully."
+          fi
