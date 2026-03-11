@@ -12,6 +12,7 @@ import { homedir } from 'node:os';
 
 import type { WorkflowDefinition } from '../schemas/workflow.schema.js';
 import { validateWorkflowFull } from '../engine/composite-validation.js';
+import { DAWELogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,9 +38,11 @@ export class WorkflowRegistry {
   private readonly workflowDirs: string[];
   private readonly cache = new Map<string, CachedWorkflow>();
   private readonly warnings: string[] = [];
+  private readonly logger: DAWELogger;
 
-  constructor(workflowDirs?: string[]) {
+  constructor(workflowDirs?: string[], options?: { logger?: DAWELogger }) {
     this.workflowDirs = workflowDirs ?? [resolve('./workflows'), join(homedir(), '.pi', 'workflows')];
+    this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
   }
 
   /**
@@ -49,9 +52,16 @@ export class WorkflowRegistry {
     this.cache.clear();
     this.warnings.length = 0;
 
+    this.logger.info('Loading all workflows', { directories: this.workflowDirs });
+
     for (const dir of this.workflowDirs) {
       await this.scanDirectory(dir);
     }
+
+    this.logger.info('Workflow loading complete', {
+      workflowCount: this.cache.size,
+      warningCount: this.warnings.length,
+    });
   }
 
   /**
@@ -80,6 +90,8 @@ export class WorkflowRegistry {
       return;
     }
 
+    this.logger.info('Reloading workflow', { name, sourcePath: cached.sourcePath });
+
     try {
       const content = await readFile(cached.sourcePath, 'utf-8');
       const result = validateWorkflowFull(content);
@@ -88,11 +100,14 @@ export class WorkflowRegistry {
           definition: result.data.definition,
           sourcePath: cached.sourcePath,
         });
+        this.logger.info('Workflow reloaded successfully', { name });
       } else {
         this.warnings.push(`Failed to reload workflow "${name}" from ${cached.sourcePath}: validation failed`);
+        this.logger.warn('Workflow reload failed: validation error', { name, sourcePath: cached.sourcePath });
       }
     } catch {
       this.warnings.push(`Failed to reload workflow "${name}" from ${cached.sourcePath}: file read error`);
+      this.logger.warn('Workflow reload failed: file read error', { name, sourcePath: cached.sourcePath });
     }
   }
 
@@ -114,6 +129,7 @@ export class WorkflowRegistry {
     } catch {
       // Directory doesn't exist or can't be read — not an error
       this.warnings.push(`Directory not found or unreadable: ${dir}`);
+      this.logger.warn('Workflow directory not found or unreadable', { directory: dir });
       return;
     }
 
@@ -134,11 +150,14 @@ export class WorkflowRegistry {
             definition: result.data.definition,
             sourcePath: filePath,
           });
+          this.logger.info('Workflow loaded', { name, sourcePath: filePath });
         } else {
           this.warnings.push(`Validation failed for ${filePath}: ${JSON.stringify(result.errors)}`);
+          this.logger.warn('Workflow validation failed', { filePath });
         }
       } catch {
         this.warnings.push(`Failed to read ${filePath}`);
+        this.logger.warn('Failed to read workflow file', { filePath });
       }
     }
   }

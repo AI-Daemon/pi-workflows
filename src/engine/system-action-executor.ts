@@ -25,6 +25,7 @@ import type { ExecutorActionResult, ExecutorOptions, StreamingCallbacks, RetryCo
 import { SecurityValidator, type SecurityError } from './security-validator.js';
 import { shellEscape } from './shell-escape.js';
 import { resolveTemplate } from './template-engine.js';
+import { DAWELogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -177,10 +178,12 @@ function validateWorkingDir(dir: string): Result<void, SecurityError> {
 export class SystemActionExecutor {
   private readonly options: ExecutorOptions;
   private readonly securityValidator: SecurityValidator;
+  private readonly logger: DAWELogger;
 
-  constructor(options?: Partial<ExecutorOptions>) {
+  constructor(options?: Partial<ExecutorOptions> & { logger?: DAWELogger }) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
     this.securityValidator = new SecurityValidator(this.options.blockedCommands);
+    this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
   }
 
   // -----------------------------------------------------------------------
@@ -214,6 +217,11 @@ export class SystemActionExecutor {
     //    resolved command, to avoid false positives from escaped values.
     const validationResult = this.validateCommand(node.command);
     if (!validationResult.ok) {
+      this.logger.error('Command blocked by security policy', undefined, {
+        command: node.command,
+        code: 'X-003',
+        pattern: validationResult.errors.pattern,
+      });
       return validationResult as Result<ExecutorActionResult, SecurityError>;
     }
 
@@ -246,7 +254,29 @@ export class SystemActionExecutor {
     const env = this.buildEnv(node, context);
 
     // 6. Execute
+    this.logger.info('System action started', {
+      runtime: node.runtime,
+      command: resolvedCommand.substring(0, 200),
+      workDir,
+      timeoutMs,
+    });
+
     const result = await this.spawnCommand(node.runtime, resolvedCommand, workDir, env, timeoutMs, callbacks);
+
+    if (result.timed_out) {
+      this.logger.warn('System action timed out', {
+        command: resolvedCommand.substring(0, 200),
+        timeoutMs,
+        durationMs: result.duration_ms,
+        code: 'X-001',
+      });
+    } else {
+      this.logger.info('System action completed', {
+        command: resolvedCommand.substring(0, 200),
+        exitCode: result.exit_code,
+        durationMs: result.duration_ms,
+      });
+    }
 
     return { ok: true, data: result };
   }
@@ -295,9 +325,16 @@ export class SystemActionExecutor {
       ].join('\n');
 
       writeFileSync(filePath, content, 'utf-8');
+      this.logger.debug('File pointer log written', { filePath, instanceId, nodeId, visitCount });
       return filePath;
-    } catch {
-      // Log pointer write failed — non-fatal
+    } catch (err) {
+      this.logger.warn('File pointer write failed', {
+        instanceId,
+        nodeId,
+        visitCount,
+        code: 'X-005',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       return null;
     }
   }

@@ -46,6 +46,7 @@ import { extractJson } from './json-extractor.js';
 import { StallDetector } from './stall-detector.js';
 import type { CycleTransitionInfo, StallDetectionInfo } from './agent-message-formatter.js';
 import type { StallDetectorOptions } from './stall-detector.js';
+import { DAWELogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +62,8 @@ export interface RuntimeOptions {
   instanceStore?: InstanceStore;
   /** Options passed to StallDetector. */
   stallDetectorOptions?: StallDetectorOptions;
+  /** Optional logger for structured output. */
+  logger?: DAWELogger;
 }
 
 /** Internal representation of a loaded workflow. */
@@ -92,14 +95,22 @@ export class WorkflowRuntime extends EventEmitter {
   private readonly evaluator: ExpressionEvaluator;
   private readonly maxChainLength: number;
   private readonly stallDetector: StallDetector;
+  private readonly logger: DAWELogger;
 
   constructor(options?: RuntimeOptions) {
     super();
+    this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
     this.store = options?.instanceStore ?? new InMemoryInstanceStore();
-    this.executor = new SystemActionExecutor(options?.executorOptions);
-    this.evaluator = new ExpressionEvaluator();
+    this.executor = new SystemActionExecutor({
+      ...options?.executorOptions,
+      logger: this.logger.child({ component: 'executor' }),
+    });
+    this.evaluator = new ExpressionEvaluator({ logger: this.logger.child({ component: 'evaluator' }) });
     this.maxChainLength = options?.maxChainLength ?? 20;
-    this.stallDetector = new StallDetector(options?.stallDetectorOptions);
+    this.stallDetector = new StallDetector({
+      ...options?.stallDetectorOptions,
+      logger: this.logger.child({ component: 'stall-detector' }),
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -201,7 +212,15 @@ export class WorkflowRuntime extends EventEmitter {
     });
 
     await this.store.save(instance);
+
+    this.logger.info('Instance started', {
+      instanceId,
+      workflowId,
+      workflowName: definition.workflow_name,
+      initialNode: initialNodeId,
+    });
     this.emit('node:entered', instanceId, initialNodeId);
+    this.logger.info('Node entered', { instanceId, nodeId: initialNodeId, nodeType: initialNode.type });
 
     // Process the initial node
     return this.processCurrentNode(instance, definition);
@@ -298,6 +317,7 @@ export class WorkflowRuntime extends EventEmitter {
     }
 
     this.emit('node:completed', instanceId, nodeId, nodePayload);
+    this.logger.info('Node completed', { instanceId, nodeId });
 
     // Build expression context for transition evaluation (with $metadata)
     const $metadata = instance.payload['$metadata'] as WorkflowMetadata | undefined;
@@ -441,6 +461,12 @@ export class WorkflowRuntime extends EventEmitter {
         chainCount++;
 
         this.emit('system_action:executed', instance.instanceId, nodeId, execResult.data);
+        this.logger.info('System action executed', {
+          instanceId: instance.instanceId,
+          nodeId,
+          exitCode: execResult.data.exit_code,
+          durationMs: execResult.data.duration_ms,
+        });
 
         // Mark node completed in history
         const historyEntry = instance.history[instance.history.length - 1];
@@ -449,6 +475,7 @@ export class WorkflowRuntime extends EventEmitter {
         }
 
         this.emit('node:completed', instance.instanceId, nodeId, execResult.data);
+        this.logger.info('Node completed', { instanceId: instance.instanceId, nodeId });
 
         // Build context with action_result for transition evaluation (with $metadata)
         const actionResult: ActionResult = {
@@ -493,9 +520,23 @@ export class WorkflowRuntime extends EventEmitter {
         instance.currentNodeType = targetNode.type;
         instance.updatedAt = Date.now();
 
+        this.logger.debug('Transition taken', {
+          instanceId: instance.instanceId,
+          from: nodeId,
+          to: targetNodeId,
+        });
+
         // Increment visit count in $metadata
         if ($metadata) {
           $metadata.visits[targetNodeId] = ($metadata.visits[targetNodeId] ?? 0) + 1;
+          if (newCycleInfo) {
+            this.logger.info('Cycle iteration', {
+              instanceId: instance.instanceId,
+              nodeId: targetNodeId,
+              visit: newCycleInfo.currentVisit,
+              maxVisits: newCycleInfo.maxVisits,
+            });
+          }
         }
 
         // Add history entry for new node
@@ -507,6 +548,11 @@ export class WorkflowRuntime extends EventEmitter {
         });
 
         this.emit('node:entered', instance.instanceId, targetNodeId);
+        this.logger.info('Node entered', {
+          instanceId: instance.instanceId,
+          nodeId: targetNodeId,
+          nodeType: targetNode.type,
+        });
 
         // Pass cycle info forward for next iteration
         cycleInfo = newCycleInfo;
@@ -554,6 +600,11 @@ export class WorkflowRuntime extends EventEmitter {
     instance.currentNodeType = targetNode.type;
     instance.updatedAt = Date.now();
 
+    this.logger.debug('Transition taken', {
+      instanceId: instance.instanceId,
+      to: targetNodeId,
+    });
+
     // Increment visit count in $metadata
     const $metadata = instance.payload['$metadata'] as WorkflowMetadata | undefined;
     if ($metadata) {
@@ -569,6 +620,11 @@ export class WorkflowRuntime extends EventEmitter {
     });
 
     this.emit('node:entered', instance.instanceId, targetNodeId);
+    this.logger.info('Node entered', {
+      instanceId: instance.instanceId,
+      nodeId: targetNodeId,
+      nodeType: targetNode.type,
+    });
 
     // Process the new current node
     return this.processCurrentNode(instance, definition, undefined, cycleInfo);
@@ -610,6 +666,12 @@ export class WorkflowRuntime extends EventEmitter {
           instanceId: instance.instanceId,
           nodeId: fromNodeId,
         };
+        this.logger.error('Expression evaluation failed during transition', undefined, {
+          instanceId: instance.instanceId,
+          nodeId: fromNodeId,
+          expression: transition.condition,
+          code: 'R-008',
+        });
         this.emit('error', instance.instanceId, error);
         return { ok: false, errors: error };
       }
@@ -711,6 +773,11 @@ export class WorkflowRuntime extends EventEmitter {
                 instanceId: instance.instanceId,
                 nodeId: fromNodeId,
               };
+              this.logger.error('Budget exhausted — all transitions blocked', undefined, {
+                instanceId: instance.instanceId,
+                nodeId: fromNodeId,
+                code: 'R-005',
+              });
               this.emit('error', instance.instanceId, error);
               return { ok: false, errors: error };
             }
@@ -726,6 +793,11 @@ export class WorkflowRuntime extends EventEmitter {
       instanceId: instance.instanceId,
       nodeId: fromNodeId,
     };
+    this.logger.error('No matching transition found', undefined, {
+      instanceId: instance.instanceId,
+      nodeId: fromNodeId,
+      code: 'R-001',
+    });
     this.emit('error', instance.instanceId, error);
     return { ok: false, errors: error };
   }
@@ -769,6 +841,15 @@ export class WorkflowRuntime extends EventEmitter {
         $metadata.stall_detected = true;
 
         // Emit informational error event
+        this.logger.warn('Stall detected during cycle execution', {
+          instanceId: instance.instanceId,
+          fromNodeId,
+          targetNodeId,
+          currentHash: stallResult.currentHash.substring(0, 16) + '...',
+          matchedIteration,
+          code: 'C-001',
+        });
+
         const error: RuntimeError = {
           code: RuntimeErrorCode.STALL_DETECTED,
           message: `Stall detected: workspace state hash sha256:${stallResult.currentHash} matches iteration ${matchedIteration}. Zero functional progress in ${fromNodeId} → ${targetNodeId} cycle.`,
@@ -838,6 +919,10 @@ export class WorkflowRuntime extends EventEmitter {
     };
 
     await this.store.save(instance);
+    this.logger.info('Instance suspended (stall detected)', {
+      instanceId: instance.instanceId,
+      workflowName: definition.workflow_name,
+    });
     this.emit('instance:completed', instance.instanceId, 'suspended');
 
     return { ok: true, data: advanceResult };
@@ -880,6 +965,12 @@ export class WorkflowRuntime extends EventEmitter {
         instanceId: instance.instanceId,
         nodeId,
       };
+      this.logger.error('System action failed', undefined, {
+        instanceId: instance.instanceId,
+        nodeId,
+        code: 'R-010',
+        errorMessage: result.errors.message,
+      });
       this.emit('error', instance.instanceId, error);
       return { ok: false, errors: error };
     }
@@ -1068,6 +1159,11 @@ export class WorkflowRuntime extends EventEmitter {
     }
 
     await this.store.save(instance);
+    this.logger.info('Instance completed', {
+      instanceId: instance.instanceId,
+      workflowName: instance.workflowName,
+      terminalStatus: node.status,
+    });
     this.emit('instance:completed', instance.instanceId, node.status);
 
     return { ok: true, data: advanceResult };
