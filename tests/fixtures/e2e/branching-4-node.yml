@@ -1,0 +1,51 @@
+# Branching 4-node workflow: decision → branch A or B → terminal
+version: '1.0'
+workflow_name: branching-4-node
+description: Workflow with conditional branching to two different paths.
+initial_node: route
+
+nodes:
+  route:
+    type: llm_decision
+    instruction: 'Decide the route for this request. Choose path "alpha" or "beta".'
+    required_schema:
+      path: string
+      reason: string
+    transitions:
+      - condition: "payload.path == 'alpha'"
+        target: alpha-task
+        priority: 0
+      - condition: "payload.path == 'beta'"
+        target: beta-task
+        priority: 1
+      - condition: 'true'
+        target: beta-task
+        priority: 99
+
+  alpha-task:
+    type: llm_task
+    instruction: 'You are on the ALPHA path. Process accordingly.'
+    completion_schema:
+      alpha_output: string
+    transitions:
+      - condition: 'true'
+        target: alpha-done
+
+  beta-task:
+    type: llm_task
+    instruction: 'You are on the BETA path. Process accordingly.'
+    completion_schema:
+      beta_output: string
+    transitions:
+      - condition: 'true'
+        target: beta-done
+
+  alpha-done:
+    type: terminal
+    status: success
+    message: 'Alpha path completed: {{payload.alpha_output}}'
+
+  beta-done:
+    type: terminal
+    status: success
+    message: 'Beta path completed: {{payload.beta_output}}'

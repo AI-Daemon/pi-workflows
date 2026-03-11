@@ -1,0 +1,57 @@
+# Error handling workflow: decision → system_action (may fail) → error branch
+version: '1.0'
+workflow_name: error-paths
+description: Workflow with intentional error branches for error recovery testing.
+initial_node: start-decision
+
+nodes:
+  start-decision:
+    type: llm_decision
+    instruction: 'Provide the project name and action to take.'
+    required_schema:
+      project_name: string
+      action: string
+    transitions:
+      - condition: 'true'
+        target: run-check
+
+  run-check:
+    type: system_action
+    runtime: bash
+    command: 'bash tests/fixtures/e2e/scripts/mock-check-issue.sh {{payload.project_name}}'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: success-path
+        priority: 0
+      - condition: 'true'
+        target: error-handler
+        priority: 1
+
+  success-path:
+    type: llm_task
+    instruction: 'Issue found. Proceed with the existing issue.'
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: done-success
+
+  error-handler:
+    type: llm_task
+    instruction: 'No issue found — an error occurred. Decide how to recover.'
+    completion_schema:
+      recovery_action: string
+    transitions:
+      - condition: 'true'
+        target: done-failure
+
+  done-success:
+    type: terminal
+    status: success
+    message: 'Workflow completed successfully.'
+
+  done-failure:
+    type: terminal
+    status: failure
+    message: 'Workflow ended in error recovery path.'
