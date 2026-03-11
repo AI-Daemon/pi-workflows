@@ -1,0 +1,18 @@
+version: '1.0'
+workflow_name: minimal-workflow
+description: The smallest valid workflow — one decision node and one terminal node.
+initial_node: decide
+
+nodes:
+  decide:
+    type: llm_decision
+    instruction: Decide whether to proceed.
+    required_schema:
+      action: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success

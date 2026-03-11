@@ -1,0 +1,68 @@
+version: '1.0'
+workflow_name: full-featured-workflow
+description: A workflow exercising every node type and optional field.
+initial_node: assess
+
+metadata:
+  author: test-suite
+  version: 42
+
+nodes:
+  assess:
+    type: llm_decision
+    instruction: Assess the incoming request and decide what to do.
+    required_schema:
+      intent: string
+      confidence: number
+    transitions:
+      - condition: "intent == 'task'"
+        target: do-task
+        priority: 0
+      - condition: "intent == 'action'"
+        target: run-action
+        priority: 1
+      - condition: 'true'
+        target: fail
+        priority: 99
+    timeout_seconds: 60
+    retry:
+      max_attempts: 3
+      backoff_ms: 1000
+
+  do-task:
+    type: llm_task
+    instruction: Perform the requested task.
+    completion_schema:
+      result: string
+      score: number
+    transitions:
+      - condition: 'true'
+        target: success
+    timeout_seconds: 600
+    context_keys:
+      - user_input
+      - session_id
+
+  run-action:
+    type: system_action
+    runtime: bash
+    command: 'echo "Hello, {{name}}"'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'exit_code == 0'
+        target: success
+      - condition: 'true'
+        target: fail
+    env:
+      NODE_ENV: test
+    working_dir: /tmp
+
+  success:
+    type: terminal
+    status: success
+    message: 'Workflow completed successfully.'
+
+  fail:
+    type: terminal
+    status: failure
+    message: 'Workflow failed.'

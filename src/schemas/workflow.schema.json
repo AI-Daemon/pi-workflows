@@ -1,0 +1,265 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/AI-Daemon/pi-workflows/blob/main/src/schemas/workflow.schema.json",
+  "title": "DAWE Workflow Definition",
+  "description": "Schema for Declarative Agent Workflow Engine (DAWE) workflow YAML files — version 1.0",
+  "type": "object",
+  "required": ["version", "workflow_name", "description", "initial_node", "nodes"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version — currently only \"1.0\" is supported",
+      "examples": ["1.0"]
+    },
+    "workflow_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 3,
+      "maxLength": 64,
+      "description": "Unique kebab-case identifier for this workflow",
+      "examples": ["code-review", "deploy-staging", "triage-issue"]
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Human-readable summary of the workflow purpose",
+      "examples": ["A workflow that triages incoming GitHub issues"]
+    },
+    "initial_node": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The node key where execution begins — must reference a key in `nodes`",
+      "examples": ["assess_intent"]
+    },
+    "nodes": {
+      "type": "object",
+      "description": "Map of node identifiers to their definitions. Must contain at least one terminal node.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/NodeDefinition"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional arbitrary key-value metadata",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "NodeDefinition": {
+      "description": "A workflow node — one of llm_decision, llm_task, system_action, or terminal",
+      "oneOf": [
+        { "$ref": "#/$defs/LlmDecisionNode" },
+        { "$ref": "#/$defs/LlmTaskNode" },
+        { "$ref": "#/$defs/SystemActionNode" },
+        { "$ref": "#/$defs/TerminalNode" }
+      ]
+    },
+    "Transition": {
+      "type": "object",
+      "description": "A conditional transition to another node",
+      "required": ["condition", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Expression string evaluated at runtime to decide whether this transition fires",
+          "examples": ["true", "result.severity == 'high'", "exit_code == 0"]
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Node key this transition leads to",
+          "examples": ["done", "handle_error"]
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Evaluation order — lower values are evaluated first (default 0)",
+          "examples": [0, 1, 10]
+        }
+      }
+    },
+    "RetryConfig": {
+      "type": "object",
+      "description": "Retry configuration for LLM decision nodes",
+      "required": ["max_attempts", "backoff_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of retry attempts"
+        },
+        "backoff_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Backoff delay in milliseconds between retries"
+        }
+      }
+    },
+    "SchemaFieldType": {
+      "type": "string",
+      "enum": ["string", "number", "boolean", "string[]", "number[]"],
+      "description": "Allowed field types for required_schema"
+    },
+    "CompletionFieldType": {
+      "type": "string",
+      "enum": ["string", "number", "boolean"],
+      "description": "Allowed field types for completion_schema"
+    },
+    "LlmDecisionNode": {
+      "type": "object",
+      "description": "An LLM decision node that routes based on the model response",
+      "required": ["type", "instruction", "required_schema", "transitions"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "llm_decision"
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Prompt instruction for the LLM"
+        },
+        "required_schema": {
+          "type": "object",
+          "description": "Schema the LLM response must conform to",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/SchemaFieldType"
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Transition" },
+          "minItems": 1,
+          "description": "Transitions evaluated after the LLM responds"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 600,
+          "default": 120,
+          "description": "Timeout in seconds (default 120)"
+        },
+        "retry": {
+          "$ref": "#/$defs/RetryConfig"
+        }
+      }
+    },
+    "LlmTaskNode": {
+      "type": "object",
+      "description": "An LLM task node that performs work and returns structured output",
+      "required": ["type", "instruction", "completion_schema", "transitions"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "llm_task"
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000,
+          "description": "Prompt instruction for the LLM task"
+        },
+        "completion_schema": {
+          "type": "object",
+          "description": "Schema the LLM must return upon completion",
+          "additionalProperties": {
+            "$ref": "#/$defs/CompletionFieldType"
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Transition" },
+          "minItems": 1,
+          "description": "Transitions evaluated after the task completes"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1800,
+          "default": 300,
+          "description": "Timeout in seconds (default 300)"
+        },
+        "context_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Payload keys to inject into the prompt context"
+        }
+      }
+    },
+    "SystemActionNode": {
+      "type": "object",
+      "description": "A system action node that runs a shell or Node.js command",
+      "required": ["type", "runtime", "command", "transitions"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "system_action"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": ["bash", "node"],
+          "description": "Runtime environment for the command"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command to execute (supports {{handlebars}} interpolation)"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "default": 30,
+          "description": "Timeout in seconds (default 30)"
+        },
+        "transitions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Transition" },
+          "minItems": 1,
+          "description": "Transitions evaluated after the command completes"
+        },
+        "env": {
+          "type": "object",
+          "description": "Additional environment variables",
+          "additionalProperties": { "type": "string" }
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Working directory for command execution"
+        }
+      }
+    },
+    "TerminalNode": {
+      "type": "object",
+      "description": "A terminal node — the workflow ends here",
+      "required": ["type", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "terminal"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["success", "failure", "cancelled"],
+          "description": "Terminal status of the workflow"
+        },
+        "message": {
+          "type": "string",
+          "description": "Template-able summary message"
+        }
+      }
+    }
+  }
+}

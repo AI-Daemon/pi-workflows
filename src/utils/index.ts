@@ -1,4 +1,5 @@
-// Utils module — Shared utilities (logging, errors, types)
-// TODO: Implement in story #2 (Engine Core & Schema Validation)
+/**
+ * Utils barrel export.
+ */
 
-export {};
+export type { Result } from './result.js';

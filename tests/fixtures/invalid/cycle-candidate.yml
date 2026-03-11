@@ -1,0 +1,28 @@
+# For Story #3 — cycle detection
+version: '1.0'
+workflow_name: cycle-candidate
+description: A workflow with a potential cycle for DAG validation.
+initial_node: node-a
+
+nodes:
+  node-a:
+    type: llm_decision
+    instruction: First node.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: node-b
+
+  node-b:
+    type: llm_task
+    instruction: Second node.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: node-a
+
+  done:
+    type: terminal
+    status: success

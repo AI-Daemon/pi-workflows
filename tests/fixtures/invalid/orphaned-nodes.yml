@@ -1,0 +1,28 @@
+# For Story #3 — orphaned node detection
+version: '1.0'
+workflow_name: orphaned-nodes
+description: A workflow containing an orphaned node with no incoming transitions.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_decision
+    instruction: Start here.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  orphan:
+    type: llm_task
+    instruction: This node is unreachable.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
