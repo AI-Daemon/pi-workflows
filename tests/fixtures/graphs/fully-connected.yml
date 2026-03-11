@@ -1,0 +1,80 @@
+# Complex but valid graph with multiple branches and merge points
+version: '1.0'
+workflow_name: fully-connected
+description: A complex but valid workflow with many branches and merges.
+initial_node: entry
+
+nodes:
+  entry:
+    type: llm_decision
+    instruction: Classify the request.
+    required_schema:
+      category: string
+    transitions:
+      - condition: "category == 'a'"
+        target: branch-a
+        priority: 0
+      - condition: "category == 'b'"
+        target: branch-b
+        priority: 1
+      - condition: 'true'
+        target: branch-c
+        priority: 2
+
+  branch-a:
+    type: llm_task
+    instruction: Handle branch A.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: merge
+
+  branch-b:
+    type: system_action
+    runtime: node
+    command: 'console.log("b")'
+    transitions:
+      - condition: 'exit_code == 0'
+        target: merge
+      - condition: 'true'
+        target: fail
+
+  branch-c:
+    type: llm_decision
+    instruction: Sub-decision in branch C.
+    required_schema:
+      sub: string
+    transitions:
+      - condition: "sub == 'x'"
+        target: branch-c-x
+      - condition: 'true'
+        target: merge
+
+  branch-c-x:
+    type: llm_task
+    instruction: Deep branch C-X.
+    completion_schema:
+      deep: string
+    transitions:
+      - condition: 'true'
+        target: merge
+
+  merge:
+    type: llm_task
+    instruction: Merge all branches.
+    completion_schema:
+      final: string
+    transitions:
+      - condition: 'true'
+        target: success
+
+  success:
+    type: terminal
+    status: success
+    message: Done.
+
+  fail:
+    type: terminal
+    status: failure
+    message: Failed.

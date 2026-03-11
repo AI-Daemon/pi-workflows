@@ -1,0 +1,28 @@
+# An orphaned node not connected to anything
+version: '1.0'
+workflow_name: orphaned-node
+description: A workflow with an orphaned node that has no incoming edges.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_decision
+    instruction: Entry node.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  orphan:
+    type: llm_task
+    instruction: This node is unreachable and orphaned.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success

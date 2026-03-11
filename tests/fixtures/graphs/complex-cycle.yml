@@ -1,0 +1,45 @@
+# Complex cycle: A → B → C → D → B (cycle in B-C-D)
+version: '1.0'
+workflow_name: complex-cycle
+description: A workflow with a longer cycle B → C → D → B.
+initial_node: node-a
+
+nodes:
+  node-a:
+    type: llm_decision
+    instruction: Entry node.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: node-b
+
+  node-b:
+    type: llm_task
+    instruction: Second node.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: node-c
+
+  node-c:
+    type: system_action
+    runtime: bash
+    command: echo test
+    transitions:
+      - condition: 'true'
+        target: node-d
+
+  node-d:
+    type: llm_decision
+    instruction: Decision node that loops back.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: node-b
+
+  done:
+    type: terminal
+    status: success
