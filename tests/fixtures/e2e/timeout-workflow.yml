@@ -1,0 +1,36 @@
+# Timeout testing workflow: llm → slow system_action → llm
+version: '1.0'
+workflow_name: timeout-workflow
+description: Workflow with a slow system action for timeout testing.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_decision
+    instruction: 'Provide the timeout duration.'
+    required_schema:
+      duration: string
+    transitions:
+      - condition: 'true'
+        target: slow-action
+
+  slow-action:
+    type: system_action
+    runtime: bash
+    command: 'bash tests/fixtures/e2e/scripts/slow-script.sh {{payload.duration}}'
+    timeout_seconds: 2
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done-success
+      - condition: 'true'
+        target: done-timeout
+
+  done-success:
+    type: terminal
+    status: success
+    message: 'Completed without timeout.'
+
+  done-timeout:
+    type: terminal
+    status: failure
+    message: 'Action timed out.'

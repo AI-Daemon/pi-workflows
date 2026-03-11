@@ -1,0 +1,91 @@
+# Full issue-first development workflow (adapted from PRD Section 5)
+version: '1.0'
+workflow_name: issue-first-development
+description: Full issue-first development workflow with system actions simulating GitHub operations.
+initial_node: assess-intent
+
+metadata:
+  team: engineering
+  process: issue-first
+
+nodes:
+  assess-intent:
+    type: llm_decision
+    instruction: 'Assess the development intent. What project are you working on and does it require file edits?'
+    required_schema:
+      project_name: string
+      requires_edits: boolean
+    transitions:
+      - condition: 'payload.requires_edits == true'
+        target: check-issue
+        priority: 0
+      - condition: 'true'
+        target: done-no-edits
+        priority: 99
+
+  check-issue:
+    type: system_action
+    runtime: bash
+    command: 'bash tests/fixtures/e2e/scripts/mock-check-issue.sh {{payload.project_name}}'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: implement-code
+        priority: 0
+      - condition: 'true'
+        target: create-issue
+        priority: 1
+
+  create-issue:
+    type: system_action
+    runtime: bash
+    command: 'bash tests/fixtures/e2e/scripts/mock-create-issue.sh {{payload.project_name}}'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: implement-code
+      - condition: 'true'
+        target: done-failure
+
+  implement-code:
+    type: llm_task
+    instruction: 'Implement the code changes for project {{payload.project_name}}. An issue has been created or found.'
+    completion_schema:
+      status: string
+      files_changed: string
+    context_keys:
+      - project_name
+      - requires_edits
+    transitions:
+      - condition: "payload.status == 'complete'"
+        target: create-pr
+        priority: 0
+      - condition: 'true'
+        target: done-failure
+        priority: 99
+
+  create-pr:
+    type: system_action
+    runtime: bash
+    command: 'bash tests/fixtures/e2e/scripts/mock-create-pr.sh {{payload.project_name}}'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done-success
+      - condition: 'true'
+        target: done-failure
+
+  done-success:
+    type: terminal
+    status: success
+    message: 'Development workflow completed successfully for {{payload.project_name}}.'
+
+  done-failure:
+    type: terminal
+    status: failure
+    message: 'Development workflow failed.'
+
+  done-no-edits:
+    type: terminal
+    status: success
+    message: 'No file edits required. Guidance provided.'

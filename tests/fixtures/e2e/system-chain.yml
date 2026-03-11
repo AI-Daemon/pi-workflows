@@ -1,0 +1,71 @@
+# System action chain: llm → sys1 → sys2 → sys3 → llm → terminal
+version: '1.0'
+workflow_name: system-chain
+description: Workflow with 3 consecutive system actions chained together.
+initial_node: gather-info
+
+nodes:
+  gather-info:
+    type: llm_decision
+    instruction: 'Provide the project name and environment to set up.'
+    required_schema:
+      project_name: string
+      environment: string
+    transitions:
+      - condition: 'true'
+        target: create-temp-file
+
+  create-temp-file:
+    type: system_action
+    runtime: bash
+    command: 'bash tests/fixtures/e2e/scripts/create-temp-file.sh {{payload.project_name}}'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: check-env
+      - condition: 'true'
+        target: fail
+
+  check-env:
+    type: system_action
+    runtime: bash
+    command: 'bash tests/fixtures/e2e/scripts/env-echo.sh'
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: process-data
+      - condition: 'true'
+        target: fail
+
+  process-data:
+    type: system_action
+    runtime: bash
+    command: 'echo ''{"processed": true, "project": "{{payload.project_name}}"}'''
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: review-results
+      - condition: 'true'
+        target: fail
+
+  review-results:
+    type: llm_task
+    instruction: 'Review the results of the system actions for project {{payload.project_name}}.'
+    completion_schema:
+      review_status: string
+    context_keys:
+      - project_name
+      - environment
+    transitions:
+      - condition: 'true'
+        target: success
+
+  success:
+    type: terminal
+    status: success
+    message: 'System chain completed for project {{payload.project_name}}.'
+
+  fail:
+    type: terminal
+    status: failure
+    message: 'System chain failed.'

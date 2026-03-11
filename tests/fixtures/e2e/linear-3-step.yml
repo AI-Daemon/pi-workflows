@@ -1,0 +1,34 @@
+# Linear 3-step workflow: decision → task → terminal
+version: '1.0'
+workflow_name: linear-3-step
+description: A simple linear workflow with decision, task, and terminal nodes.
+initial_node: decide
+
+nodes:
+  decide:
+    type: llm_decision
+    instruction: 'Decide what action to take for the given project.'
+    required_schema:
+      action: string
+      priority: number
+    transitions:
+      - condition: 'true'
+        target: execute
+
+  execute:
+    type: llm_task
+    instruction: 'Execute the action "{{payload.action}}" with priority {{payload.priority}}.'
+    completion_schema:
+      result: string
+      success: boolean
+    context_keys:
+      - action
+      - priority
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+    message: 'Workflow completed. Action: {{payload.action}}, Result: {{payload.result}}'

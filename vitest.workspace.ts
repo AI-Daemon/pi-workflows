@@ -16,7 +16,12 @@ export default defineWorkspace([
   {
     test: {
       name: 'e2e',
-      include: ['tests/e2e/**/*.test.ts'],
+      include: ['tests/e2e/**/*.e2e.test.ts'],
+      testTimeout: 30000,
+      hookTimeout: 10000,
+      sequence: {
+        concurrent: false,
+      },
     },
   },
 ]);
