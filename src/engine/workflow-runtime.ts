@@ -42,6 +42,7 @@ import { PayloadManager } from './payload-manager.js';
 import { SystemActionExecutor } from './system-action-executor.js';
 import { resolveTemplate } from './template-engine.js';
 import { formatAgentMessage } from './agent-message-formatter.js';
+import { extractJson } from './json-extractor.js';
 import type { CycleTransitionInfo } from './agent-message-formatter.js';
 
 // ---------------------------------------------------------------------------
@@ -690,6 +691,11 @@ export class WorkflowRuntime extends EventEmitter {
 
   /**
    * Execute a system_action node and merge its result into the payload.
+   *
+   * After execution:
+   * 1. Always writes a file pointer log (v2.0 workflows only).
+   * 2. If node has `extract_json`, extracts structured JSON into `payload.extracted_json`.
+   * 3. Sets `payload.log_pointer_path` to the file pointer log path.
    */
   private async executeSystemAction(
     instance: WorkflowInstance,
@@ -732,6 +738,44 @@ export class WorkflowRuntime extends EventEmitter {
       },
     };
     payloadManager.merge(nodeId, actionResultPayload);
+
+    // --- File pointer and extract_json (v2.0 only) ---
+    const isV2 = definition.version === '2.0';
+    if (isV2) {
+      // 1. Write file pointer log
+      const $metadata = instance.payload['$metadata'] as WorkflowMetadata | undefined;
+      const visitCount = $metadata?.visits[nodeId] ?? 1;
+      const logPath = this.executor.writeFilePointerLog(
+        instance.instanceId,
+        nodeId,
+        visitCount,
+        result.data.command_executed,
+        result.data,
+      );
+
+      if (logPath) {
+        payloadManager.merge(nodeId, { log_pointer_path: logPath });
+      }
+
+      // 2. Extract JSON if node has extract_json
+      if (node.extract_json) {
+        // Resolve Handlebars templates in the extract_json path
+        const pathContext: Record<string, unknown> = {
+          payload: payloadManager.getPayload(),
+          metadata: definition.metadata ?? {},
+        };
+        const pathResult = resolveTemplate(node.extract_json, pathContext);
+        const resolvedPath = pathResult.ok ? pathResult.data : node.extract_json;
+
+        const extraction = await extractJson(resolvedPath);
+        if (extraction.success && extraction.data) {
+          payloadManager.merge(nodeId, { extracted_json: extraction.data });
+        } else {
+          payloadManager.merge(nodeId, { extracted_json: null });
+        }
+      }
+    }
+
     instance.payload = payloadManager.getPayload() as Record<string, unknown>;
 
     return { ok: true, data: result.data };
@@ -755,10 +799,12 @@ export class WorkflowRuntime extends EventEmitter {
     instance.status = 'waiting_for_agent';
     instance.updatedAt = Date.now();
 
-    // Resolve instruction template
+    // Resolve instruction template (includes $metadata for visit counts)
+    const $meta = instance.payload['$metadata'] as WorkflowMetadata | undefined;
     const templateResult = resolveTemplate(node.instruction, {
       payload: instance.payload,
       metadata: definition.metadata ?? {},
+      ...($meta ? { $metadata: $meta } : {}),
     });
 
     const resolvedInstruction = templateResult.ok ? templateResult.data : node.instruction;
@@ -852,6 +898,16 @@ export class WorkflowRuntime extends EventEmitter {
       ...partialResult,
       agentMessage,
     };
+
+    // Clean up file pointer logs for this instance on terminal state
+    try {
+      const cleaned = this.executor.cleanupFilePointerLogs(instance.instanceId);
+      if (cleaned > 0) {
+        // Cleanup success — non-critical, just informational
+      }
+    } catch {
+      // Cleanup failure is non-fatal — do not block workflow completion
+    }
 
     await this.store.save(instance);
     this.emit('instance:completed', instance.instanceId, node.status);

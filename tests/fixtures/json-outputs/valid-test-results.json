@@ -1,0 +1,29 @@
+{
+  "numTotalTests": 10,
+  "numPassedTests": 8,
+  "numFailedTests": 2,
+  "testResults": [
+    {
+      "name": "src/utils.test.ts",
+      "status": "failed",
+      "assertionResults": [
+        {
+          "fullName": "utils > should parse input correctly",
+          "status": "failed",
+          "failureMessages": ["Expected 42 but received undefined"]
+        }
+      ]
+    },
+    {
+      "name": "src/handler.test.ts",
+      "status": "failed",
+      "assertionResults": [
+        {
+          "fullName": "handler > should handle edge case",
+          "status": "failed",
+          "failureMessages": ["Timeout exceeded"]
+        }
+      ]
+    }
+  ]
+}

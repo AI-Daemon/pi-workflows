@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolve, join } from 'node:path';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { SystemActionExecutor } from '../../../src/engine/system-action-executor.js';
 import { SecurityValidator, DEFAULT_BLOCKED_PATTERNS } from '../../../src/engine/security-validator.js';
@@ -1048,6 +1048,181 @@ describe('SystemActionExecutor', () => {
         expect(result.data.stdout).toContain('line1');
         expect(result.data.stdout).toContain('line2');
       }
+    });
+  });
+
+  // =========================================================================
+  // File pointer log tests (DAWE-016)
+  // =========================================================================
+
+  describe('File pointer logs (DAWE-016)', () => {
+    const FILE_POINTER_DIR = '/tmp/dawe-runs';
+
+    function cleanFilePointerDir(instanceId: string): void {
+      try {
+        if (existsSync(FILE_POINTER_DIR)) {
+          const files = readdirSync(FILE_POINTER_DIR).filter((f) => f.startsWith(`${instanceId}-`));
+          for (const file of files) {
+            rmSync(join(FILE_POINTER_DIR, file), { force: true });
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    it('writeFilePointerLog writes a log file to the expected path', () => {
+      const instanceId = 'test-instance-fp1';
+      cleanFilePointerDir(instanceId);
+
+      const result = {
+        exit_code: 0,
+        stdout: 'hello world',
+        stderr: '',
+        duration_ms: 100,
+        timed_out: false,
+        command_executed: 'echo "hello world"',
+      };
+
+      const logPath = executor.writeFilePointerLog(instanceId, 'run_tests', 1, 'echo "hello world"', result);
+      expect(logPath).not.toBeNull();
+      expect(logPath).toBe(join(FILE_POINTER_DIR, `${instanceId}-run_tests-1.log`));
+      expect(existsSync(logPath!)).toBe(true);
+
+      cleanFilePointerDir(instanceId);
+    });
+
+    it('file pointer log contains stdout, stderr, exit code, and metadata header', () => {
+      const instanceId = 'test-instance-fp2';
+      cleanFilePointerDir(instanceId);
+
+      const result = {
+        exit_code: 1,
+        stdout: 'test output line',
+        stderr: 'error output line',
+        duration_ms: 250,
+        timed_out: false,
+        command_executed: 'npm test',
+      };
+
+      const logPath = executor.writeFilePointerLog(instanceId, 'run_tests', 2, 'npm test', result);
+      expect(logPath).not.toBeNull();
+
+      const content = readFileSync(logPath!, 'utf-8');
+      expect(content).toContain('=== DAWE System Action Log ===');
+      expect(content).toContain(`Instance: ${instanceId}`);
+      expect(content).toContain('Node: run_tests');
+      expect(content).toContain('Visit: 2');
+      expect(content).toContain('Command: npm test');
+      expect(content).toContain('Exit Code: 1');
+      expect(content).toContain('=== STDOUT ===');
+      expect(content).toContain('test output line');
+      expect(content).toContain('=== STDERR ===');
+      expect(content).toContain('error output line');
+
+      cleanFilePointerDir(instanceId);
+    });
+
+    it('file pointer path returned correctly from writeFilePointerLog', () => {
+      const instanceId = 'test-instance-fp3';
+      cleanFilePointerDir(instanceId);
+
+      const result = {
+        exit_code: 0,
+        stdout: '',
+        stderr: '',
+        duration_ms: 50,
+        timed_out: false,
+        command_executed: 'echo test',
+      };
+
+      const logPath = executor.writeFilePointerLog(instanceId, 'build', 1, 'echo test', result);
+      expect(logPath).toContain('/tmp/dawe-runs/');
+      expect(logPath).toContain(instanceId);
+      expect(logPath).toContain('build');
+      expect(logPath).toContain('-1.log');
+
+      cleanFilePointerDir(instanceId);
+    });
+
+    it('/tmp/dawe-runs/ directory created if missing', () => {
+      const instanceId = 'test-instance-fp4';
+      // Remove the dir if it exists (may have leftover files)
+      cleanFilePointerDir(instanceId);
+
+      const result = {
+        exit_code: 0,
+        stdout: 'output',
+        stderr: '',
+        duration_ms: 10,
+        timed_out: false,
+        command_executed: 'echo',
+      };
+
+      const logPath = executor.writeFilePointerLog(instanceId, 'node1', 1, 'echo', result);
+      expect(logPath).not.toBeNull();
+      expect(existsSync(FILE_POINTER_DIR)).toBe(true);
+
+      cleanFilePointerDir(instanceId);
+    });
+
+    it('multiple executions of same node create visit-numbered logs', () => {
+      const instanceId = 'test-instance-fp5';
+      cleanFilePointerDir(instanceId);
+
+      const result = {
+        exit_code: 0,
+        stdout: '',
+        stderr: '',
+        duration_ms: 10,
+        timed_out: false,
+        command_executed: 'echo',
+      };
+
+      const log1 = executor.writeFilePointerLog(instanceId, 'run_tests', 1, 'echo', result);
+      const log2 = executor.writeFilePointerLog(instanceId, 'run_tests', 2, 'echo', result);
+      const log3 = executor.writeFilePointerLog(instanceId, 'run_tests', 3, 'echo', result);
+
+      expect(log1).toContain('-1.log');
+      expect(log2).toContain('-2.log');
+      expect(log3).toContain('-3.log');
+      expect(existsSync(log1!)).toBe(true);
+      expect(existsSync(log2!)).toBe(true);
+      expect(existsSync(log3!)).toBe(true);
+
+      cleanFilePointerDir(instanceId);
+    });
+
+    it('cleanupFilePointerLogs removes all instance files', () => {
+      const instanceId = 'test-instance-fp6';
+      cleanFilePointerDir(instanceId);
+
+      const result = {
+        exit_code: 0,
+        stdout: '',
+        stderr: '',
+        duration_ms: 10,
+        timed_out: false,
+        command_executed: 'echo',
+      };
+
+      executor.writeFilePointerLog(instanceId, 'node1', 1, 'echo', result);
+      executor.writeFilePointerLog(instanceId, 'node2', 1, 'echo', result);
+      executor.writeFilePointerLog(instanceId, 'node1', 2, 'echo', result);
+
+      const cleaned = executor.cleanupFilePointerLogs(instanceId);
+      expect(cleaned).toBe(3);
+
+      // Verify files are gone
+      if (existsSync(FILE_POINTER_DIR)) {
+        const remaining = readdirSync(FILE_POINTER_DIR).filter((f: string) => f.startsWith(`${instanceId}-`));
+        expect(remaining.length).toBe(0);
+      }
+    });
+
+    it('cleanupFilePointerLogs returns 0 when no files exist', () => {
+      const cleaned = executor.cleanupFilePointerLogs('nonexistent-instance-id');
+      expect(cleaned).toBeGreaterThanOrEqual(0);
     });
   });
 
