@@ -65,6 +65,11 @@ export {
   SecurityValidator,
   DEFAULT_BLOCKED_PATTERNS,
   shellEscape,
+  // Workflow Runtime Engine
+  WorkflowRuntime,
+  RuntimeErrorCode,
+  InMemoryInstanceStore,
+  formatAgentMessage,
 } from './engine/index.js';
 
 export type {
@@ -95,6 +100,16 @@ export type {
   RetryConfig,
   SecurityError,
   SecurityErrorCode,
+  // Workflow Runtime types
+  RuntimeOptions,
+  RuntimeEvents,
+  WorkflowInstance,
+  AdvanceResult,
+  InstanceStatus,
+  InstanceHistoryEntry,
+  SystemActionChainEntry,
+  RuntimeError,
+  InstanceStore,
 } from './engine/index.js';
 
 // Result utility type

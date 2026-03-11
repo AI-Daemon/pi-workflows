@@ -1,0 +1,60 @@
+# A → (branch) → B or C → terminal
+version: '1.0'
+workflow_name: branching-workflow
+description: Workflow with conditional branching based on LLM decision.
+initial_node: classify
+
+nodes:
+  classify:
+    type: llm_decision
+    instruction: 'Classify the incoming request.'
+    required_schema:
+      category: string
+      confidence: number
+    transitions:
+      - condition: "payload.category == 'bug'"
+        target: handle-bug
+        priority: 0
+      - condition: "payload.category == 'feature'"
+        target: handle-feature
+        priority: 1
+      - condition: 'true'
+        target: handle-unknown
+        priority: 99
+
+  handle-bug:
+    type: llm_task
+    instruction: 'Fix the bug.'
+    completion_schema:
+      fix_description: string
+    transitions:
+      - condition: 'true'
+        target: success
+
+  handle-feature:
+    type: llm_task
+    instruction: 'Implement the feature.'
+    completion_schema:
+      feature_summary: string
+    transitions:
+      - condition: 'true'
+        target: success
+
+  handle-unknown:
+    type: llm_task
+    instruction: 'Handle the unknown request type.'
+    completion_schema:
+      reason: string
+    transitions:
+      - condition: 'true'
+        target: failure
+
+  success:
+    type: terminal
+    status: success
+    message: 'Request handled successfully.'
+
+  failure:
+    type: terminal
+    status: failure
+    message: 'Could not handle the request.'

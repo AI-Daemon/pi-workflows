@@ -1,0 +1,29 @@
+# A → B → terminal (all llm nodes)
+version: '1.0'
+workflow_name: simple-linear
+description: A simple linear workflow with two LLM nodes.
+initial_node: ask
+
+nodes:
+  ask:
+    type: llm_decision
+    instruction: 'Decide what to do.'
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: do-task
+
+  do-task:
+    type: llm_task
+    instruction: 'Perform the task based on choice: {{payload.choice}}.'
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+    message: 'Completed with result: {{payload.result}}'
