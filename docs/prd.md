@@ -139,7 +139,7 @@ To prevent the agent from burning loops by applying the same broken fix repeated
 - **Evaluation:** If the hash exactly matches a previous loop iteration's hash, the agent has made **zero functional progress**.
 - **Action:** The engine immediately throws a `STALL_DETECTED` error, halting the loop and transitioning the workflow to a `SUSPENDED` state for human review, regardless of remaining `max_visits` budget.
 
-This approach is superior to global step limits because it detects the *cause* of infinite loops (no progress) rather than using an arbitrary counter that penalizes legitimately complex workflows.
+This approach is superior to global step limits because it detects the _cause_ of infinite loops (no progress) rather than using an arbitrary counter that penalizes legitimately complex workflows.
 
 ---
 
@@ -201,6 +201,7 @@ To prevent the agent from ignoring the workflow, we expose a single deterministi
 When the tool is called, the engine processes the graph and returns a strict markdown string to realign the agent. The response now includes cycle metadata when applicable.
 
 **Standard progression:**
+
 ```
 > SYSTEM ACTION SUCCESSFUL. Issue #198 created on repository pi-daemon.
 > NEXT NODE: llm_implement_code
@@ -209,6 +210,7 @@ When the tool is called, the engine processes the graph and returns a strict mar
 ```
 
 **Cycle iteration (test failure with retry budget):**
+
 ```
 > SYSTEM ACTION FAILED. Test suite returned 3 failures (exit code 1).
 > CYCLE: run_tests → fix_tests (attempt 2 of 3)
@@ -220,6 +222,7 @@ When the tool is called, the engine processes the graph and returns a strict mar
 ```
 
 **Stall detected (workflow suspended):**
+
 ```
 > STALL DETECTED. The workspace state is identical to the previous iteration.
 > The agent has made zero functional progress in the run_tests → fix_tests cycle.
