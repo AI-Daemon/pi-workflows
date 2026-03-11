@@ -115,6 +115,35 @@ export type {
 // Result utility type
 export type { Result } from './utils/index.js';
 
+// Unified error hierarchy (DAWE-012)
+export {
+  DAWEError,
+  SchemaValidationError as DAWESchemaValidationError,
+  GraphValidationError as DAWEGraphValidationError,
+  ExpressionEvaluationError,
+  PayloadError,
+  SystemActionError,
+  RuntimeError as DAWERuntimeError,
+  SecurityViolationError,
+  CycleSafetyError,
+  ErrorCollector,
+  DAWELogger,
+  getDefaultLogger,
+  setDefaultLogger,
+  ERROR_CODES,
+  getErrorCodeEntry,
+} from './utils/index.js';
+export type {
+  ErrorCategory,
+  ErrorSeverity,
+  SerializedError,
+  ErrorCodeEntry,
+  ErrorCode,
+  LogLevel,
+  LogFormat,
+  LoggerOptions,
+} from './utils/index.js';
+
 // Extension module — Pi extension tool wrapper (advance_workflow)
 export { default as piWorkflowsExtension } from './extension/index.js';
 export {
