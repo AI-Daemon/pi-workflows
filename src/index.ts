@@ -56,6 +56,10 @@ export {
   ExpressionErrorCode,
   // Composite validation
   validateWorkflowFull,
+  // Payload Manager
+  PayloadManager,
+  // Template Engine
+  resolveTemplate,
 } from './engine/index.js';
 
 export type {
@@ -75,6 +79,10 @@ export type {
   // Composite validation types
   ValidatedWorkflow,
   CompositeValidationError,
+  // Payload Manager types
+  PayloadValidationError,
+  PayloadHistoryEntry,
+  TemplateError,
 } from './engine/index.js';
 
 // Result utility type
