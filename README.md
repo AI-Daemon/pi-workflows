@@ -1,103 +1,161 @@
 # pi-workflows — Declarative Agent Workflow Engine (DAWE)
 
-A state-machine-based workflow engine for Pi agents. Replaces text-based skill routing with deterministic YAML/JSON DAG workflows.
+<!-- Badges -->
 
-## Problem
+![CI](https://github.com/AI-Daemon/pi-workflows/actions/workflows/ci.yml/badge.svg)
 
-Pi agents currently rely on a progressive disclosure mechanism using Markdown files (`~/.pi/agent/skills/`) to execute complex, multi-step development pipelines. This architecture fails because it relies on the LLM to autonomously chain multi-hop text file reads, retain massive procedural context (400+ lines), and self-route. LLMs are non-deterministic and frequently experience choice paralysis or skip steps entirely when presented with procedural SOPs.
+A state-machine-based workflow engine for Pi agents. Replaces text-based skill routing with deterministic YAML/JSON workflows.
 
-## Solution
+## Quick Start
 
-Deprecate the text-based routing files and implement a **Declarative State Machine** represented as a **Directed Acyclic Graph (DAG)**. Workflows are defined in strict YAML/JSON configurations. The Pi agent interacts with a single, universal Extension Tool (`advance_workflow`). The engine spoon-feeds the agent its exact current state, required actions, and strict boundaries — completely removing the LLM's burden of orchestration while providing a highly extensible, "low-code" architecture for the engineering team.
+```bash
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Run tests
+npm test
+
+# Create your first workflow
+cat > workflows/examples/my-first-workflow.yml << 'EOF'
+version: '1.0'
+workflow_name: my-first-workflow
+description: A simple example workflow.
+initial_node: ask_task
+
+nodes:
+  ask_task:
+    type: llm_decision
+    instruction: 'What task do you need?'
+    required_schema:
+      task: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+    message: 'Task noted: {{payload.task}}'
+EOF
+```
+
+## Features
+
+### Core Engine
+
+- **YAML workflow definitions** with Zod schema validation
+- **Four node types:** `llm_decision`, `llm_task`, `system_action`, `terminal`
+- **jexl expression evaluator** for safe, sandboxed transition conditions
+- **Handlebars templating** for dynamic instructions and commands
+- **Auto-advancing system actions** with security validation and shell escaping
+
+### v2.0: Bounded Cycles
+
+- **`max_visits`** per-node budget enforcement for safe iteration
+- **`extract_json`** structured output extraction from command output files
+- **`$metadata.visits`** cycle-aware instructions and transitions
+- **Stall detection** via SHA-256 workspace state hashing
+- **`suspended` terminal status** for human intervention fallback
+
+### Error & Observability
+
+- **Unified `DAWEError` hierarchy** with 8 category-specific subclasses
+- **Error code registry** (`S-001` through `P-007`) as single source of truth
+- **`DAWELogger`** structured JSON/pretty logging with child loggers
+- **`ErrorCollector`** for multi-error validation pipelines
+- **Agent recovery hints** (`agentHint`) guide the LLM through self-recovery
+
+### Persistence
+
+- **`FileInstanceStore`** for durable file-based persistence with atomic writes
+- **Write debouncing** for performance during rapid state changes
+- **Instance recovery** after process/container restarts
 
 ## Architecture
 
-The DAWE architecture consists of three distinct layers:
+```
+YAML Workflow Files
+    ↓ Parser & Validator
+Workflow Runtime (FSM)
+    ↓ Expression Evaluator + Payload Manager + System Action Executor
+Pi Extension Tool (advance_workflow)
+    ↓ Response & Error Formatters
+Pi Agent / LLM
+```
 
-1. **Definition Layer (YAML/JSON)** — Declarative configuration files that define nodes, transitions, and state requirements. The "no-code" interface for adding/removing workflow steps.
-2. **Execution Engine (TypeScript/Node.js)** — The runtime that parses YAML files, manages state payload, evaluates conditional transitions, and executes system-level scripts natively (bypassing the LLM).
-3. **Agent Interface (Pi Extension Tool)** — The boundary layer. A single tool exposed to the Pi agent that acts as a pager, sending LLM outputs to the engine and returning the next node's strict instructions.
+Three layers: **Definition** (YAML) → **Engine** (TypeScript) → **Agent Interface** (Pi Extension).
 
 ## Node Types
 
-| Type            | Description                                                                      |
-| --------------- | -------------------------------------------------------------------------------- |
-| `llm_decision`  | Prompts the agent to extract specific JSON variables from user text              |
-| `llm_task`      | Hands control to the agent for open-ended work with strict completion criteria   |
-| `system_action` | Executes purely in the engine (API calls, bash, Docker) without LLM intervention |
+| Type            | Description                                                             |
+| --------------- | ----------------------------------------------------------------------- |
+| `llm_decision`  | Prompts the agent to extract specific JSON variables from user text     |
+| `llm_task`      | Hands control to the agent for open-ended work with completion criteria |
+| `system_action` | Executes commands natively (bash/Node.js) without LLM intervention      |
+| `terminal`      | End state: `success`, `failure`, `cancelled`, or `suspended`            |
 
-## Workflow Schema Example
+## Example: Test-Fix Cycle (v2.0)
 
 ```yaml
-version: '1.0'
-workflow_name: 'issue-first-development'
-description: 'Enforces GitHub issue creation before code implementation.'
-initial_node: 'assess_intent'
+version: '2.0'
+workflow_name: test-fix-cycle
+description: Run tests, fix failures, retry up to 3 times.
+initial_node: run_tests
 
 nodes:
-  assess_intent:
-    type: 'llm_decision'
-    instruction: 'Analyze the user request. Identify the target repository and whether file edits are required.'
-    required_schema:
-      project_name: 'string'
-      requires_edits: 'boolean'
-    transitions:
-      - condition: 'payload.requires_edits == false'
-        target: 'exit_informational'
-      - condition: 'payload.requires_edits == true'
-        target: 'system_check_issue'
-
-  system_check_issue:
-    type: 'system_action'
-    runtime: 'bash'
-    command: './scripts/check-gh-issue.sh {{payload.project_name}}'
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'npm test'
+    max_visits: 3
     transitions:
       - condition: 'action_result.exit_code == 0'
-        target: 'llm_implement_code'
-      - condition: 'action_result.exit_code != 0'
-        target: 'system_create_issue'
+        target: done
+      - condition: 'true'
+        target: fix_tests
+
+  fix_tests:
+    type: llm_task
+    instruction: 'Fix the failing tests. Attempt {{$metadata.visits.run_tests}} of 3.'
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+    message: 'All tests pass!'
+
+  stuck:
+    type: terminal
+    status: suspended
+    message: 'Tests still failing after 3 attempts.'
 ```
 
-## State Management (Context Payload)
+## Documentation
 
-The engine maintains a mutable JSON object called the **Payload** throughout the lifecycle of a workflow instance.
-
-- **Hydration** — As the graph transitions node-to-node, outputs from `llm_decision` and `system_action` nodes are merged into the payload.
-- **Templating** — Node instructions and system commands dynamically inject variables using Handlebars syntax (`{{payload.project_name}}`).
-- **Context Isolation** — The LLM does not need to remember step 1 when it reaches step 5. The engine templates accumulated facts into the current node's prompt.
-
-## Agent Interface — `advance_workflow` Tool
-
-```json
-{
-  "name": "advance_workflow",
-  "description": "REQUIRED tool to progress through development workflows.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "workflow_instance_id": { "type": "string" },
-      "current_node_id": { "type": "string" },
-      "node_payload": { "type": "object" }
-    },
-    "required": ["current_node_id", "node_payload"]
-  }
-}
-```
-
-## Implementation Roadmap
-
-- **Phase 1:** Engine Core & Schema Validation — JSON Schema for YAML files, TypeScript DAG parser, loop/orphan detection
-- **Phase 2:** State Context & Expression Evaluation — Payload manager, safe JS expression evaluator (jexl/expr-eval), Handlebars templating
-- **Phase 3:** Pi Extension Boundary — `advance_workflow` tool wrapper, system_action executor, global prompt integration
+- [Architecture](./docs/architecture.md) — System design, data flow, FSM model, security
+- [Workflow Authoring Guide](./docs/workflow-authoring-guide.md) — How to write workflows
+- [API Reference](./docs/api-reference.md) — TypeScript API for engine developers
+- [Expression Reference](./docs/expression-reference.md) — jexl syntax and examples
+- [Error Code Reference](./docs/error-code-reference.md) — All error codes with recovery hints
+- [Contributing](./docs/contributing.md) — Development setup, standards, how to extend
+- [Migration Guide](./docs/migration-guide.md) — Migrating from Markdown skills
+- [Architecture Decision Records](./docs/adr/) — Why we made specific design choices
 
 ## Tech Stack
 
-- TypeScript / Node.js
-- YAML workflow definitions with JSON Schema validation
+- TypeScript / Node.js (ESM only)
+- Zod for runtime schema validation
+- jexl for safe expression evaluation
 - Handlebars for template interpolation
-- jexl or expr-eval for safe conditional expression evaluation
-- Pi Extension SDK for tool registration
+- Vitest for testing
 
 ## License
 
-MIT
+See [LICENSE](./LICENSE).

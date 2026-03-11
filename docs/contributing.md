@@ -96,3 +96,138 @@ This project requires **Node.js 20+**. Use the `.nvmrc` file:
 ```bash
 nvm use
 ```
+
+## Error Handling Standards
+
+### Use `DAWEError` Subclasses — Never Throw Raw `Error` Objects
+
+Every error thrown or collected by the engine must be a `DAWEError` subclass. This ensures consistent error codes, structured logging, and agent recovery hints.
+
+### Pick the Right Subclass
+
+| Subclass                    | Category     | When to Use                        |
+| --------------------------- | ------------ | ---------------------------------- |
+| `SchemaValidationError`     | `schema`     | YAML parsing and schema validation |
+| `GraphValidationError`      | `graph`      | Structural graph issues            |
+| `ExpressionEvaluationError` | `expression` | jexl evaluation failures           |
+| `PayloadError`              | `payload`    | Merge failures, protected keys     |
+| `SystemActionError`         | `execution`  | Command execution failures         |
+| `RuntimeError`              | `runtime`    | Lifecycle errors                   |
+| `SecurityViolationError`    | `security`   | Blocked command patterns           |
+| `CycleSafetyError`          | `cycle`      | Stall detection, budget exhaustion |
+
+### How to Add a New Error Code
+
+1. Open `src/utils/error-codes.ts`
+2. Add a new entry to the `ERROR_CODES` object following the naming convention: `{PREFIX}-{NNN}`
+   - Prefixes: `S` (schema), `G` (graph), `E` (expression), `R` (runtime), `X` (execution), `C` (cycle), `P` (payload)
+   - Numbers are sequential within each prefix
+3. Required fields: `message`, `category`, `recoverable`
+4. Optional fields: `severity` (default: `'error'`), `agentHint` (required for recoverable errors)
+
+```typescript
+'R-011': {
+  message: 'Custom runtime error description',
+  category: 'runtime',
+  recoverable: true,
+  agentHint: 'Tell the LLM how to recover from this error.',
+},
+```
+
+### Always Include `agentHint` for Recoverable Errors
+
+If the error is recoverable (`recoverable: true`), you **must** provide an `agentHint`. The LLM reads these hints to self-correct.
+
+### Use `ErrorCollector` in Validation Pipelines
+
+When validating workflows (schema + graph), collect all errors before failing:
+
+```typescript
+const collector = new ErrorCollector();
+// ... add errors ...
+if (collector.hasErrors()) {
+  return collector.toResult();
+}
+```
+
+## Logging Standards
+
+### Accept an Optional `DAWELogger` in Constructors
+
+Every module constructor should accept an optional `logger` parameter. Default to a warn-level logger:
+
+```typescript
+export class MyModule {
+  private readonly logger: DAWELogger;
+
+  constructor(options?: { logger?: DAWELogger }) {
+    this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
+  }
+}
+```
+
+### Use `child()` Loggers with Component Context
+
+```typescript
+const runtime = new WorkflowRuntime({ logger });
+// Internal: this.executor = new SystemActionExecutor({
+//   logger: this.logger.child({ component: 'executor' })
+// });
+```
+
+### Log Level Guidelines
+
+| Level   | Use For                                                                |
+| ------- | ---------------------------------------------------------------------- |
+| `debug` | Internal details: expression eval, payload merge, hash computation     |
+| `info`  | Lifecycle events: instance start, node entry/completion, workflow load |
+| `warn`  | Non-fatal issues: stale files, extraction fallback, stall detected     |
+| `error` | Failures: expression error, command failure, security block            |
+
+### Always Pass `DAWEError` to `logger.error()`
+
+The logger automatically extracts `code`, `category`, and `context` from `DAWEError` instances:
+
+```typescript
+const error = new SystemActionError('X-001', 'Command timed out');
+this.logger.error('System action failed', error, { nodeId: 'run_tests' });
+```
+
+### Never Use `console.log` Directly
+
+Use `DAWELogger` for all output. This ensures structured formatting and level filtering.
+
+### Test Logging with Injectable `output`
+
+```typescript
+const logs: string[] = [];
+const logger = new DAWELogger({
+  level: 'debug',
+  format: 'json',
+  output: (line) => logs.push(line),
+});
+// ... use logger ...
+expect(logs.some((l) => l.includes('"message":"Expected message"'))).toBe(true);
+```
+
+## How to Add a New Node Type
+
+1. Define the Zod schema in `src/schemas/workflow.schema.ts`
+2. Add it to the `NodeDefinitionSchema` discriminated union
+3. Handle the new type in `WorkflowRuntime.processCurrentNode()`
+4. Add transition evaluation logic
+5. Update `formatAgentMessage()` in `agent-message-formatter.ts`
+6. Add test fixtures in `tests/fixtures/`
+7. Write unit and integration tests
+8. Update documentation
+
+## How to Add a New Expression Transform
+
+1. Open `src/engine/expression-evaluator.ts`
+2. Add the transform in the constructor: `this.jexlInstance.addTransform('name', fn)`
+3. Add tests in `tests/unit/engine/expression-evaluator.test.ts`
+4. Document in `docs/expression-reference.md`
+
+---
+
+_See also: [Architecture](./architecture.md) · [API Reference](./api-reference.md) · [Error Code Reference](./error-code-reference.md)_
