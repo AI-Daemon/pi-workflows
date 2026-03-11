@@ -2,7 +2,7 @@
  * Engine barrel export.
  *
  * Re-exports the DAG parser, graph types, validators, visualization
- * helpers, and the composite validation function.
+ * helpers, expression evaluator, and the composite validation function.
  */
 
 // DAG Graph types
@@ -35,6 +35,12 @@ export {
 
 // Visualization helpers
 export { toMermaid, toDot, toAdjacencyListJSON, formatValidationReport } from './visualization.js';
+
+// Expression evaluator
+export { ExpressionEvaluator } from './expression-evaluator.js';
+export type { ExpressionContext, ActionResult } from './expression-context.js';
+export { ExpressionErrorCode } from './expression-errors.js';
+export type { ExpressionError } from './expression-errors.js';
 
 // Composite validation
 export { validateWorkflowFull } from './composite-validation.js';
