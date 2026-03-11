@@ -15,6 +15,7 @@ import type { z } from 'zod';
 import type { Result } from '../utils/result.js';
 import type { PayloadHistoryEntry } from './payload-history.js';
 import { resolveTemplate, type TemplateError } from './template-engine.js';
+import { DAWELogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,12 +136,14 @@ export class PayloadManager {
   private history: PayloadHistoryEntry[];
   private maxHistoryEntries: number;
   private maxSizeBytes: number;
+  private readonly logger: DAWELogger;
 
-  constructor(initialPayload?: Record<string, unknown>) {
+  constructor(initialPayload?: Record<string, unknown>, options?: { logger?: DAWELogger }) {
     this.payload = initialPayload ? structuredClone(initialPayload) : {};
     this.history = [];
     this.maxHistoryEntries = DEFAULT_MAX_HISTORY;
     this.maxSizeBytes = DEFAULT_MAX_SIZE_BYTES;
+    this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
   }
 
   // -----------------------------------------------------------------------
@@ -194,11 +197,13 @@ export class PayloadManager {
 
     // Protect $metadata as a reserved key — prevent user payloads from overwriting it
     if ('$metadata' in clonedData) {
+      this.logger.debug('Blocked $metadata overwrite attempt', { nodeId, code: 'P-001' });
       delete clonedData['$metadata'];
     }
 
     // Apply the deep merge
     this.payload = deepMerge({ ...this.payload }, clonedData);
+    this.logger.debug('Payload merged', { nodeId, keysModified });
 
     // Record history
     const entry: PayloadHistoryEntry = {
@@ -244,7 +249,14 @@ export class PayloadManager {
    * @returns Result with the resolved string or a `TemplateError`.
    */
   resolveTemplate(template: string): Result<string, TemplateError> {
-    return resolveTemplate(template, { payload: this.payload });
+    const result = resolveTemplate(template, { payload: this.payload });
+    if (!result.ok) {
+      this.logger.error('Template resolution failed', undefined, {
+        code: 'P-002',
+        template: template.substring(0, 200),
+      });
+    }
+    return result;
   }
 
   /**

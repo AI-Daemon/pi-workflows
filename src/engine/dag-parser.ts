@@ -31,6 +31,9 @@ import {
   checkMaxDepth,
   computeGraphStats,
 } from './graph-validator.js';
+import { DAWELogger } from '../utils/logger.js';
+import { ErrorCollector } from '../utils/error-collector.js';
+import { GraphValidationError as DAWEGraphValidationError } from '../utils/errors.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -39,6 +42,8 @@ import {
 export interface DAGParserOptions {
   /** Maximum allowed graph depth (default 50). */
   maxDepth?: number;
+  /** Optional logger for structured output. */
+  logger?: DAWELogger;
 }
 
 const DEFAULT_MAX_DEPTH = 50;
@@ -50,10 +55,12 @@ const DEFAULT_MAX_DEPTH = 50;
 export class DAGParser {
   private readonly workflow: WorkflowDefinition;
   private readonly maxDepth: number;
+  private readonly logger: DAWELogger;
 
   constructor(workflow: WorkflowDefinition, options?: DAGParserOptions) {
     this.workflow = workflow;
     this.maxDepth = options?.maxDepth ?? DEFAULT_MAX_DEPTH;
+    this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
   }
 
   /**
@@ -124,11 +131,21 @@ export class DAGParser {
     const graph = this.parse();
     const version = this.workflow.version;
 
+    this.logger.info('Graph validation started', {
+      workflowName: this.workflow.workflow_name,
+      version,
+      nodeCount: graph.nodes.size,
+    });
+    this.logger.debug('Validation mode', { version: version === '2.0' ? 'v2.0 (bounded cycles)' : 'v1.0 (DAG)' });
+
+    // Use ErrorCollector for multi-error collection
+    const collector = new ErrorCollector();
+
     // Version-aware cycle validation
     const cycleErrors: GraphValidationError[] =
       version === '2.0' ? validateBoundedCycles(graph, this.workflow) : detectCycles(graph);
 
-    const errors: GraphValidationError[] = [
+    const allGraphErrors: GraphValidationError[] = [
       ...cycleErrors,
       ...detectUnreachableNodes(graph),
       ...detectDeadEnds(graph),
@@ -136,15 +153,55 @@ export class DAGParser {
       ...checkMaxDepth(graph, this.maxDepth),
     ];
 
+    // Add graph errors to the ErrorCollector
+    for (const graphError of allGraphErrors) {
+      collector.add(
+        new DAWEGraphValidationError(graphError.code, graphError.message, {
+          context: { nodeIds: graphError.nodeIds },
+        }),
+      );
+    }
+
     const warnings: GraphValidationWarning[] = [...detectDuplicateTransitionTargets(graph)];
 
     const stats = computeGraphStats(graph);
 
+    this.logger.info('Graph validation complete', {
+      valid: allGraphErrors.length === 0,
+      errorCount: allGraphErrors.length,
+      warningCount: warnings.length,
+      totalNodes: stats.totalNodes,
+      totalEdges: stats.totalEdges,
+    });
+
+    if (collector.hasErrors()) {
+      this.logger.warn('Graph validation found errors', {
+        summary: collector.toSummary(),
+      });
+    }
+
     return {
-      valid: errors.length === 0,
-      errors,
+      valid: allGraphErrors.length === 0,
+      errors: allGraphErrors,
       warnings,
       stats,
     };
+  }
+
+  /**
+   * Get an ErrorCollector with all graph validation errors as DAWEError instances.
+   * Useful for pipelines that need the unified error type.
+   */
+  validateWithCollector(): { result: GraphValidationResult; collector: ErrorCollector } {
+    const result = this.validate();
+    const collector = new ErrorCollector();
+    for (const graphError of result.errors) {
+      collector.add(
+        new DAWEGraphValidationError(graphError.code, graphError.message, {
+          context: { nodeIds: graphError.nodeIds },
+        }),
+      );
+    }
+    return { result, collector };
   }
 }

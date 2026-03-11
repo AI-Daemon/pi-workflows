@@ -6,6 +6,7 @@
  */
 
 import type { RuntimeError } from '../engine/runtime-errors.js';
+import { DAWEError } from '../utils/errors.js';
 
 // ---------------------------------------------------------------------------
 // Detailed payload validation error
@@ -118,8 +119,34 @@ export function formatWorkflowNotFoundError(workflowName: string, availableWorkf
 
 /**
  * Format any RuntimeError into actionable markdown.
+ *
+ * If the error is a `DAWEError` instance, uses `toAgentMessage()` for
+ * a richer, recovery-hint-aware format. Falls back to the original
+ * formatting for plain `RuntimeError` interface objects.
  */
-export function formatRuntimeError(error: RuntimeError): string {
+export function formatRuntimeError(error: RuntimeError | DAWEError): string {
+  // If it's a DAWEError, use the unified agent message with recovery hints
+  if (error instanceof DAWEError) {
+    const lines: string[] = [];
+    lines.push(`> **ERROR:** ${error.code}`);
+    lines.push('');
+    lines.push(error.toAgentMessage());
+
+    // Add instance/node context if available in the error's context
+    const instanceId = error.context['instanceId'];
+    const nodeId = error.context['nodeId'];
+    if (instanceId != null) {
+      lines.push('');
+      lines.push(`Instance: \`${typeof instanceId === 'string' ? instanceId : JSON.stringify(instanceId)}\``);
+    }
+    if (nodeId != null) {
+      lines.push(`Node: \`${typeof nodeId === 'string' ? nodeId : JSON.stringify(nodeId)}\``);
+    }
+
+    return lines.join('\n');
+  }
+
+  // Fallback: plain RuntimeError interface (backward compatible)
   const lines: string[] = [];
 
   lines.push(`> **ERROR:** ${error.code}`);

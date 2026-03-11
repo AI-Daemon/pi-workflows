@@ -23,6 +23,7 @@ import type { Transition } from '../schemas/workflow.schema.js';
 import type { Result } from '../utils/result.js';
 import type { ExpressionContext } from './expression-context.js';
 import { ExpressionErrorCode, type ExpressionError } from './expression-errors.js';
+import { DAWELogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -50,9 +51,11 @@ const DEFAULT_CONDITIONS = new Set(['default', 'true']);
 export class ExpressionEvaluator {
   private readonly jexlInstance: InstanceType<typeof jexl.Jexl>;
   private readonly timeoutMs: number;
+  private readonly logger: DAWELogger;
 
-  constructor(options?: { timeoutMs?: number }) {
+  constructor(options?: { timeoutMs?: number; logger?: DAWELogger }) {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
 
     // Create an isolated jexl instance
     this.jexlInstance = new jexl.Jexl();
@@ -168,11 +171,17 @@ export class ExpressionEvaluator {
 
       // Null/undefined → false (design choice for optional payload fields)
       if (result === null || result === undefined) {
+        this.logger.debug('Expression evaluated to null/undefined → false', { expression });
         return { ok: true, data: false };
       }
 
       // Must be boolean
       if (typeof result !== 'boolean') {
+        this.logger.error(`Expression evaluated to non-boolean: ${typeof result}`, undefined, {
+          expression,
+          resultType: typeof result,
+          code: 'E-003',
+        });
         return {
           ok: false,
           errors: {
@@ -183,11 +192,17 @@ export class ExpressionEvaluator {
         };
       }
 
+      this.logger.debug('Expression evaluated', { expression, result });
       return { ok: true, data: result };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
 
       if (message === 'EXPRESSION_TIMEOUT') {
+        this.logger.error(`Expression evaluation timed out after ${this.timeoutMs}ms`, undefined, {
+          expression,
+          timeoutMs: this.timeoutMs,
+          code: 'E-004',
+        });
         return {
           ok: false,
           errors: {
@@ -198,6 +213,10 @@ export class ExpressionEvaluator {
         };
       }
 
+      this.logger.error(`Expression evaluation failed: ${message}`, undefined, {
+        expression,
+        code: 'E-002',
+      });
       return {
         ok: false,
         errors: {

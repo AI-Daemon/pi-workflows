@@ -17,6 +17,7 @@
 import { createHash } from 'node:crypto';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { DAWELogger } from '../utils/logger.js';
 
 const execAsync = promisify(exec);
 
@@ -37,6 +38,8 @@ export interface StallDetectorOptions {
   workingDir?: string;
   /** Whether to include git diff in hash (default: true). Set false in non-git environments. */
   includeGitDiff?: boolean;
+  /** Optional logger for structured output. */
+  logger?: DAWELogger;
 }
 
 /** Result of a stall check operation. */
@@ -58,10 +61,12 @@ export interface StallCheckResult {
 export class StallDetector {
   private readonly workingDir: string;
   private readonly includeGitDiff: boolean;
+  private readonly logger: DAWELogger;
 
   constructor(options?: StallDetectorOptions) {
     this.workingDir = options?.workingDir ?? process.cwd();
     this.includeGitDiff = options?.includeGitDiff ?? true;
+    this.logger = options?.logger ?? new DAWELogger({ level: 'warn' });
   }
 
   /**
@@ -75,10 +80,22 @@ export class StallDetector {
     const currentHash = await this.computeHash(actionOutput);
     const iterationNumber = previousHashes.length + 1;
 
+    this.logger.debug('Stall check: hash computed', {
+      currentHash: currentHash.substring(0, 16) + '...',
+      iterationNumber,
+      previousHashCount: previousHashes.length,
+    });
+
     // Check if the current hash matches any previous hash
     const matchedPreviousHash = previousHashes.find((h) => h === currentHash);
 
     if (matchedPreviousHash !== undefined) {
+      this.logger.warn('Stall detected: workspace state matches previous iteration', {
+        currentHash: currentHash.substring(0, 16) + '...',
+        matchedHash: matchedPreviousHash.substring(0, 16) + '...',
+        iterationNumber,
+        code: 'C-001',
+      });
       return {
         stalled: true,
         currentHash,
@@ -87,6 +104,7 @@ export class StallDetector {
       };
     }
 
+    this.logger.debug('Stall check passed: no match found', { iterationNumber });
     return {
       stalled: false,
       currentHash,
