@@ -64,6 +64,8 @@ export enum GraphErrorCode {
   ORPHANED_NODE = 'ORPHANED_NODE',
   /** The graph exceeds the configured maximum depth. */
   MAX_DEPTH_EXCEEDED = 'MAX_DEPTH_EXCEEDED',
+  /** A back-edge target in a v2.0 workflow has no max_visits defined. */
+  UNBOUNDED_CYCLE = 'UNBOUNDED_CYCLE',
 }
 
 /** Graph-level warning codes. */

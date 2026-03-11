@@ -25,6 +25,7 @@ export type { DAGParserOptions } from './dag-parser.js';
 // Graph validator functions (composable)
 export {
   detectCycles,
+  validateBoundedCycles,
   detectUnreachableNodes,
   detectDeadEnds,
   detectOrphanedNodes,
@@ -39,7 +40,7 @@ export { toMermaid, toDot, toAdjacencyListJSON, formatValidationReport } from '.
 
 // Expression evaluator
 export { ExpressionEvaluator } from './expression-evaluator.js';
-export type { ExpressionContext, ActionResult } from './expression-context.js';
+export type { ExpressionContext, ActionResult, WorkflowMetadata } from './expression-context.js';
 export { ExpressionErrorCode } from './expression-errors.js';
 export type { ExpressionError } from './expression-errors.js';
 
@@ -88,3 +89,4 @@ export type { InstanceStore } from './instance-store.js';
 
 // Agent Message Formatter
 export { formatAgentMessage } from './agent-message-formatter.js';
+export type { CycleTransitionInfo } from './agent-message-formatter.js';

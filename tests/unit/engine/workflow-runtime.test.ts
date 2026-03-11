@@ -1181,3 +1181,500 @@ describe('WorkflowRuntime — Context Keys and Template Resolution', () => {
     expect(result).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// DAWE-015: $metadata tracking and bounded cycle execution
+// ---------------------------------------------------------------------------
+
+function loadFixtureV2(name: string): string {
+  return readFileSync(resolve(__dirname, '../../fixtures/workflows', name), 'utf-8');
+}
+
+describe('WorkflowRuntime — $metadata Initialization (DAWE-015)', () => {
+  let runtime: WorkflowRuntime;
+
+  beforeEach(() => {
+    runtime = createRuntime();
+  });
+
+  it('start instance → $metadata.visits initialized', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    expect(instance).not.toBeNull();
+
+    const $metadata = instance!.payload['$metadata'] as Record<string, unknown>;
+    expect($metadata).toBeDefined();
+    expect($metadata['visits']).toBeDefined();
+    expect(typeof $metadata['visits']).toBe('object');
+  });
+
+  it('enter initial node → $metadata.visits[nodeId] incremented to 1', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    const $metadata = instance!.payload['$metadata'] as { visits: Record<string, number> };
+    expect($metadata.visits['ask']).toBe(1);
+  });
+
+  it('transition to next node → $metadata.visits[nextNodeId] incremented to 1', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const adv = await runtime.advance(startResult.data.instanceId, 'ask', { choice: 'go' });
+    expect(adv.ok).toBe(true);
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    const $metadata = instance!.payload['$metadata'] as { visits: Record<string, number> };
+    expect($metadata.visits['do-task']).toBe(1);
+    expect($metadata.visits['ask']).toBe(1);
+  });
+
+  it('$metadata.instance_id matches the instance ID', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    const $metadata = instance!.payload['$metadata'] as { instance_id: string };
+    expect($metadata.instance_id).toBe(startResult.data.instanceId);
+  });
+
+  it('$metadata.started_at is a valid ISO 8601 timestamp', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    const $metadata = instance!.payload['$metadata'] as { started_at: string };
+    expect($metadata.started_at).toBeDefined();
+    // Parse to check it's valid ISO 8601
+    const parsed = new Date($metadata.started_at);
+    expect(parsed.toISOString()).toBe($metadata.started_at);
+  });
+
+  it('$metadata cannot be overwritten by agent payload', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // Try to overwrite $metadata via node_payload
+    const adv = await runtime.advance(startResult.data.instanceId, 'ask', {
+      choice: 'go',
+      $metadata: { visits: { hacked: 999 }, state_hashes: [], instance_id: 'hacked', started_at: 'hacked' },
+    });
+    expect(adv.ok).toBe(true);
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    const $metadata = instance!.payload['$metadata'] as { instance_id: string; visits: Record<string, number> };
+    // $metadata should NOT have been overwritten
+    expect($metadata.instance_id).toBe(startResult.data.instanceId);
+    expect($metadata.visits['hacked']).toBeUndefined();
+  });
+});
+
+describe('WorkflowRuntime — Bounded Cycle Execution (DAWE-015)', () => {
+  let runtime: WorkflowRuntime;
+
+  beforeEach(() => {
+    runtime = createRuntime();
+  });
+
+  it('re-enter node (cycle) → $metadata.visits[nodeId] incremented to 2', async () => {
+    const yaml = loadFixtureV2('v2-cycle-execution.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (auto-advance via system_action chain)
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+
+    // After start → run_tests (visit 1) → fix (visit 1)
+    expect(adv1.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests (visit 2)
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+
+    // Should be back at fix again after run_tests auto-advances
+    expect(adv2.data.currentNodeId).toBe('fix');
+
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    const $metadata = instance!.payload['$metadata'] as { visits: Record<string, number> };
+    expect($metadata.visits['run_tests']).toBe(2);
+  });
+
+  it('$metadata.visits accessible in transition conditions', async () => {
+    // Use an inline workflow where the transition condition uses $metadata.visits
+    const yaml = `
+version: '2.0'
+workflow_name: metadata-condition-test
+description: Test $metadata in conditions.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Start.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: check
+
+  check:
+    type: llm_decision
+    instruction: Check visits.
+    required_schema:
+      proceed: string
+    max_visits: 5
+    transitions:
+      - condition: '$metadata.visits.check < 3'
+        target: check
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → check (visit 1)
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.currentNodeId).toBe('check');
+
+    // check visit 1 → check visit 2 ($metadata.visits.check < 3 → true)
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'check', { proceed: 'yes' });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+    expect(adv2.data.currentNodeId).toBe('check');
+
+    // check visit 2 → check visit 3 ($metadata.visits.check < 3 → true, visits=2)
+    const adv3 = await runtime.advance(startResult.data.instanceId, 'check', { proceed: 'yes' });
+    expect(adv3.ok).toBe(true);
+    if (!adv3.ok) return;
+    expect(adv3.data.currentNodeId).toBe('check');
+
+    // check visit 3 → done ($metadata.visits.check < 3 → false since visits=3, so 'true' matches → done)
+    const adv4 = await runtime.advance(startResult.data.instanceId, 'check', { proceed: 'yes' });
+    expect(adv4.ok).toBe(true);
+    if (!adv4.ok) return;
+    expect(adv4.data.status).toBe('completed');
+  });
+
+  it('node at max_visits → transition to that node skipped', async () => {
+    const yaml = `
+version: '2.0'
+workflow_name: budget-skip-test
+description: Test max_visits skip.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Start.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: limited
+
+  limited:
+    type: llm_task
+    instruction: Limited node.
+    completion_schema:
+      status: string
+    max_visits: 1
+    transitions:
+      - condition: "payload.status == 'retry'"
+        target: limited
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+`;
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → limited (visit 1)
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.currentNodeId).toBe('limited');
+
+    // limited visit 1 → try retry, but max_visits=1 so limited is skipped, fallback to done
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'limited', { status: 'retry' });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+    // Should go to done since limited is budget-exhausted
+    expect(adv2.data.status).toBe('completed');
+  });
+
+  it('all transitions budget-exhausted → transitions to suspended terminal', async () => {
+    const yaml = loadFixtureV2('v2-cycle-execution.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix (visit 1)
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests (visit 2) → fix (visit 2)
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+    expect(adv2.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests (visit 3) → fix (visit 3)
+    const adv3 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv3.ok).toBe(true);
+    if (!adv3.ok) return;
+    expect(adv3.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests would be visit 4 but max_visits=3
+    // Budget exhausted → should transition to human_intervention (suspended terminal)
+    const adv4 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv4.ok).toBe(true);
+    if (adv4.ok) {
+      expect(adv4.data.status).toBe('suspended');
+      expect(adv4.data.terminalStatus).toBe('suspended');
+    }
+  });
+
+  it('all transitions budget-exhausted, no suspended terminal → BUDGET_EXHAUSTED error', async () => {
+    const yaml = loadFixtureV2('v2-budget-exhaustion.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests (visit 2) → fix
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+    expect(adv2.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests would be visit 3 but max_visits=2
+    // Budget exhausted, no suspended terminal → BUDGET_EXHAUSTED
+    const adv3 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv3.ok).toBe(false);
+    if (!adv3.ok) {
+      expect(adv3.errors.code).toBe(RuntimeErrorCode.BUDGET_EXHAUSTED);
+    }
+  });
+
+  it('suspended instance rejects further advance() calls', async () => {
+    const yaml = loadFixtureV2('v2-cycle-execution.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // Exhaust budget to reach suspended state
+    await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying', tests_pass: false });
+    await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying', tests_pass: false });
+    const adv4 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+
+    // Should be suspended now
+    expect(adv4.ok).toBe(true);
+    if (adv4.ok) {
+      expect(adv4.data.status).toBe('suspended');
+    }
+
+    // Further advance should be rejected
+    const adv5 = await runtime.advance(startResult.data.instanceId, 'human_intervention', {});
+    expect(adv5.ok).toBe(false);
+    if (!adv5.ok) {
+      expect(adv5.errors.code).toBe(RuntimeErrorCode.INSTANCE_NOT_ACTIVE);
+    }
+  });
+
+  it('three-iteration cycle: visit 1 → fix → visit 2 → fix → visit 3 → budget exhausted', async () => {
+    const yaml = loadFixtureV2('v2-cycle-execution.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // Track visit counts
+    const visitCounts: number[] = [];
+
+    // start → run_tests (visit 1) → fix
+    await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    let inst = await runtime.getInstance(startResult.data.instanceId);
+    let meta = inst!.payload['$metadata'] as { visits: Record<string, number> };
+    visitCounts.push(meta.visits['run_tests'] ?? 0);
+
+    // fix → run_tests (visit 2) → fix
+    await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying', tests_pass: false });
+    inst = await runtime.getInstance(startResult.data.instanceId);
+    meta = inst!.payload['$metadata'] as { visits: Record<string, number> };
+    visitCounts.push(meta.visits['run_tests'] ?? 0);
+
+    // fix → run_tests (visit 3) → fix
+    await runtime.advance(startResult.data.instanceId, 'fix', { status: 'retrying', tests_pass: false });
+    inst = await runtime.getInstance(startResult.data.instanceId);
+    meta = inst!.payload['$metadata'] as { visits: Record<string, number> };
+    visitCounts.push(meta.visits['run_tests'] ?? 0);
+
+    expect(visitCounts).toEqual([1, 2, 3]);
+
+    // Visit 4 attempt → budget exhausted → suspended
+    const adv = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv.ok).toBe(true);
+    if (adv.ok) {
+      expect(adv.data.status).toBe('suspended');
+    }
+  });
+
+  it('v1.0 workflow executes without $metadata.visits enforcement (backward compat)', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // Standard v1.0 execution should work exactly as before
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'ask', { choice: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.currentNodeId).toBe('do-task');
+
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'do-task', { result: 'done' });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+    expect(adv2.data.status).toBe('completed');
+  });
+
+  it('agent message includes cycle info when transitioning within a cycle', async () => {
+    const yaml = loadFixtureV2('v2-cycle-execution.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix (visit 1)
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+
+    // fix → run_tests (visit 2) → fix (visit 2) - this should have cycle info
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'retrying',
+      tests_pass: false,
+    });
+    expect(adv2.ok).toBe(true);
+    if (adv2.ok) {
+      // Agent message should contain cycle info
+      expect(adv2.data.agentMessage).toContain('CYCLE:');
+      expect(adv2.data.agentMessage).toContain('run_tests');
+    }
+  });
+
+  it('cycle where tests pass on 2nd attempt exits to success terminal', async () => {
+    const yaml = loadFixtureV2('v2-cycle-execution.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    if (!startResult.ok) return;
+
+    // start → run_tests (visit 1) → fix (tests_pass=false)
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'start', { status: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.currentNodeId).toBe('fix');
+
+    // fix → run_tests (visit 2) - this time tests pass
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'fix', {
+      status: 'fixed',
+      tests_pass: true,
+    });
+    expect(adv2.ok).toBe(true);
+    if (adv2.ok) {
+      // Should reach done terminal (tests_pass=true in payload)
+      expect(adv2.data.status).toBe('completed');
+      expect(adv2.data.terminalStatus).toBe('success');
+    }
+  });
+});

@@ -1,0 +1,46 @@
+# v2.0 workflow with a multi-node cycle: A → B → C → A.
+# All back-edge targets have max_visits defined → valid.
+
+version: '2.0'
+workflow_name: v2-multi-node-cycle
+description: Graph fixture for multi-node bounded cycle validation.
+initial_node: entry
+
+nodes:
+  entry:
+    type: llm_task
+    instruction: Start the cycle.
+    completion_schema:
+      status: string
+    max_visits: 3
+    transitions:
+      - condition: 'true'
+        target: step_b
+
+  step_b:
+    type: system_action
+    runtime: bash
+    command: 'echo step_b'
+    max_visits: 3
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: step_c
+      - condition: 'true'
+        target: done
+
+  step_c:
+    type: llm_task
+    instruction: Evaluate step C.
+    completion_schema:
+      result: string
+    max_visits: 3
+    transitions:
+      - condition: 'payload.result == "retry"'
+        target: entry
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+    message: Cycle complete.

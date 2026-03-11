@@ -23,6 +23,7 @@ import type {
 } from './dag-graph.js';
 import {
   detectCycles,
+  validateBoundedCycles,
   detectUnreachableNodes,
   detectDeadEnds,
   detectOrphanedNodes,
@@ -113,12 +114,22 @@ export class DAGParser {
 
   /**
    * Run all structural validations. Returns all errors & warnings found.
+   *
+   * Version-aware cycle handling:
+   * - v1.0: `detectCycles()` rejects all cycles.
+   * - v2.0: `validateBoundedCycles()` — cycles with `max_visits` are allowed,
+   *   unbounded cycles are rejected.
    */
   validate(): GraphValidationResult {
     const graph = this.parse();
+    const version = this.workflow.version;
+
+    // Version-aware cycle validation
+    const cycleErrors: GraphValidationError[] =
+      version === '2.0' ? validateBoundedCycles(graph, this.workflow) : detectCycles(graph);
 
     const errors: GraphValidationError[] = [
-      ...detectCycles(graph),
+      ...cycleErrors,
       ...detectUnreachableNodes(graph),
       ...detectDeadEnds(graph),
       ...detectOrphanedNodes(graph),

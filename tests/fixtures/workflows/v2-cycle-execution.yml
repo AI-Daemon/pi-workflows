@@ -1,0 +1,48 @@
+# Runtime test fixture: run_tests → fix → run_tests cycle with max_visits: 3.
+# Tests bounded cycle execution in the workflow runtime.
+
+version: '2.0'
+workflow_name: v2-cycle-execution
+description: Runtime test for bounded cycle execution.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin the task.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "running tests"'
+    max_visits: 3
+    transitions:
+      - condition: 'payload.tests_pass == true'
+        target: done
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix the failing tests based on the test output.
+    completion_schema:
+      status: string
+      tests_pass: boolean
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+    message: All tests pass.
+
+  human_intervention:
+    type: terminal
+    status: suspended
+    message: Tests failed after maximum retry attempts. Human review required.

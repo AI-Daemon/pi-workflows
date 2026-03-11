@@ -1,0 +1,42 @@
+# v2.0 workflow with bounded cycle — run_tests has max_visits: 3.
+# Used by graph-validator tests to verify bounded cycle validation passes.
+
+version: '2.0'
+workflow_name: v2-bounded-cycle-graph
+description: Graph fixture for bounded cycle validation.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin the task.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'payload.status == "done"'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo test'
+    max_visits: 3
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done
+      - condition: 'action_result.exit_code != 0'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix the failing tests.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+    message: All tests pass.

@@ -16,6 +16,7 @@
 
 import type { DAGGraph, GraphValidationError, GraphValidationWarning, GraphStats } from './dag-graph.js';
 import { GraphErrorCode, GraphWarningCode } from './dag-graph.js';
+import type { WorkflowDefinition } from '../schemas/workflow.schema.js';
 
 // ---------------------------------------------------------------------------
 // Cycle detection — DFS with back-edge tracking
@@ -80,6 +81,69 @@ export function detectCycles(graph: DAGGraph): GraphValidationError[] {
   }
 
   // Start DFS from every unvisited node (handles disconnected components)
+  for (const nodeId of graph.nodes.keys()) {
+    if (state.get(nodeId) === DFSState.UNVISITED) {
+      dfs(nodeId);
+    }
+  }
+
+  return errors;
+}
+
+// ---------------------------------------------------------------------------
+// Bounded cycle validation (v2.0) — back-edge targets must have max_visits
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate bounded cycles for v2.0 workflows.
+ *
+ * Uses the same DFS back-edge detection as `detectCycles`, but instead of
+ * rejecting all cycles, it checks that every back-edge target has `max_visits`
+ * defined. Returns `UNBOUNDED_CYCLE` errors for targets missing `max_visits`.
+ */
+export function validateBoundedCycles(graph: DAGGraph, workflow: WorkflowDefinition): GraphValidationError[] {
+  const errors: GraphValidationError[] = [];
+  const state = new Map<string, DFSState>();
+  const pathStack: string[] = [];
+  // Track back-edge targets we've already checked to avoid duplicate errors
+  const checkedTargets = new Set<string>();
+
+  for (const nodeId of graph.nodes.keys()) {
+    state.set(nodeId, DFSState.UNVISITED);
+  }
+
+  function dfs(nodeId: string): void {
+    state.set(nodeId, DFSState.IN_PROGRESS);
+    pathStack.push(nodeId);
+
+    const edges = graph.edges.get(nodeId) ?? [];
+    for (const edge of edges) {
+      const neighborState = state.get(edge.to);
+      if (neighborState === DFSState.IN_PROGRESS) {
+        // Back edge found — check that the target has max_visits
+        if (!checkedTargets.has(edge.to)) {
+          checkedTargets.add(edge.to);
+          const targetNodeDef = workflow.nodes[edge.to];
+          if (targetNodeDef && targetNodeDef.type !== 'terminal') {
+            const hasMaxVisits = 'max_visits' in targetNodeDef && targetNodeDef.max_visits !== undefined;
+            if (!hasMaxVisits) {
+              errors.push({
+                code: GraphErrorCode.UNBOUNDED_CYCLE,
+                message: `Node "${edge.to}" is targeted by a back-edge but has no max_visits defined`,
+                nodeIds: [edge.to],
+              });
+            }
+          }
+        }
+      } else if (neighborState === DFSState.UNVISITED) {
+        dfs(edge.to);
+      }
+    }
+
+    pathStack.pop();
+    state.set(nodeId, DFSState.VISITED);
+  }
+
   for (const nodeId of graph.nodes.keys()) {
     if (state.get(nodeId) === DFSState.UNVISITED) {
       dfs(nodeId);

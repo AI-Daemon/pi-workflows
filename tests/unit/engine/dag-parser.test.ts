@@ -13,6 +13,7 @@ import { parse as parseYaml } from 'yaml';
 import { DAGParser } from '../../../src/engine/dag-parser.js';
 import {
   detectCycles,
+  validateBoundedCycles,
   detectUnreachableNodes,
   detectDeadEnds,
   detectOrphanedNodes,
@@ -1130,5 +1131,186 @@ describe('Edge cases', () => {
     // Even with a cycle, it should return a finite number
     expect(depth).toBeGreaterThanOrEqual(0);
     expect(depth).toBeLessThan(100);
+  });
+});
+
+// ===================================================================
+// DAWE-015: Bounded cycle validation (v2.0) — graph-validator tests
+// ===================================================================
+
+describe('validateBoundedCycles (v2.0)', () => {
+  it('v2.0 workflow with cycle + max_visits on target → valid (no error)', () => {
+    const wf = loadFixture('graphs/v2-bounded-cycle.yml');
+    const graph = new DAGParser(wf).parse();
+    const errors = validateBoundedCycles(graph, wf);
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it('v2.0 workflow with cycle, no max_visits on target → UNBOUNDED_CYCLE error', () => {
+    const wf = loadFixture('graphs/v2-unbounded-cycle.yml');
+    const graph = new DAGParser(wf).parse();
+    const errors = validateBoundedCycles(graph, wf);
+
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors[0]!.code).toBe(GraphErrorCode.UNBOUNDED_CYCLE);
+    expect(errors[0]!.message).toContain('run_tests');
+    expect(errors[0]!.message).toContain('no max_visits defined');
+  });
+
+  it('v2.0 workflow with self-loop + max_visits → valid', () => {
+    const wf = loadFixture('graphs/v2-self-loop-bounded.yml');
+    const graph = new DAGParser(wf).parse();
+    const errors = validateBoundedCycles(graph, wf);
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it('v2.0 workflow with multi-node cycle, all targets have max_visits → valid', () => {
+    const wf = loadFixture('graphs/v2-multi-node-cycle.yml');
+    const graph = new DAGParser(wf).parse();
+    const errors = validateBoundedCycles(graph, wf);
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it('v2.0 workflow with multi-node cycle, one target missing max_visits → error', () => {
+    // Create a v2.0 workflow where one cycle target lacks max_visits
+    const wf: WorkflowDefinition = {
+      version: '2.0',
+      workflow_name: 'missing-max-visits',
+      description: 'One cycle target missing max_visits.',
+      initial_node: 'a',
+      nodes: {
+        a: {
+          type: 'llm_task',
+          instruction: 'A',
+          completion_schema: { x: 'string' },
+          max_visits: 3,
+          transitions: [{ condition: 'true', target: 'b' }],
+        },
+        b: {
+          type: 'llm_task',
+          instruction: 'B',
+          completion_schema: { x: 'string' },
+          // No max_visits!
+          transitions: [{ condition: 'true', target: 'c' }],
+        },
+        c: {
+          type: 'llm_task',
+          instruction: 'C',
+          completion_schema: { x: 'string' },
+          max_visits: 3,
+          transitions: [
+            { condition: "payload.x == 'done'", target: 'done' },
+            { condition: 'true', target: 'b' },
+          ],
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    } as WorkflowDefinition;
+
+    const graph = new DAGParser(wf).parse();
+    const errors = validateBoundedCycles(graph, wf);
+
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    const unboundedError = errors.find((e) => e.code === GraphErrorCode.UNBOUNDED_CYCLE);
+    expect(unboundedError).toBeDefined();
+    expect(unboundedError!.nodeIds).toContain('b');
+  });
+
+  it('v1.0 workflow with cycle → CYCLE_DETECTED error (unchanged behavior)', () => {
+    const wf = loadFixture('graphs/simple-cycle.yml');
+    const graph = new DAGParser(wf).parse();
+    const errors = detectCycles(graph);
+
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors[0]!.code).toBe(GraphErrorCode.CYCLE_DETECTED);
+  });
+
+  it('v1.0 workflow without cycle → valid (unchanged)', () => {
+    const wf = loadFixture('valid/minimal.yml');
+    const graph = new DAGParser(wf).parse();
+    const errors = detectCycles(graph);
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it('v2.0 workflow without cycles → valid (max_visits not required)', () => {
+    const wf: WorkflowDefinition = {
+      version: '2.0',
+      workflow_name: 'no-cycles-v2',
+      description: 'A v2.0 workflow with no cycles.',
+      initial_node: 'start',
+      nodes: {
+        start: {
+          type: 'llm_decision',
+          instruction: 'Start.',
+          required_schema: { x: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    } as WorkflowDefinition;
+
+    const graph = new DAGParser(wf).parse();
+    const errors = validateBoundedCycles(graph, wf);
+
+    expect(errors).toHaveLength(0);
+  });
+});
+
+// ===================================================================
+// DAWE-015: DAGParser version-aware validation
+// ===================================================================
+
+describe('DAGParser.validate() — version-aware (DAWE-015)', () => {
+  it('v2.0 workflow parsed with validateBoundedCycles — bounded cycle passes', () => {
+    const wf = loadFixture('graphs/v2-bounded-cycle.yml');
+    const parser = new DAGParser(wf);
+    const result = parser.validate();
+
+    // Bounded cycle should be allowed in v2.0
+    const cycleErrors = result.errors.filter((e) => e.code === GraphErrorCode.CYCLE_DETECTED);
+    expect(cycleErrors).toHaveLength(0);
+
+    // Dead-end errors are expected since fix → run_tests cycle has no guaranteed terminal path
+    // but UNBOUNDED_CYCLE should not appear
+    const unboundedErrors = result.errors.filter((e) => e.code === GraphErrorCode.UNBOUNDED_CYCLE);
+    expect(unboundedErrors).toHaveLength(0);
+  });
+
+  it('v1.0 workflow parsed with detectCycles — cycle rejected (unchanged)', () => {
+    const wf = loadFixture('graphs/simple-cycle.yml');
+    const parser = new DAGParser(wf);
+    const result = parser.validate();
+
+    expect(result.valid).toBe(false);
+    const cycleErrors = result.errors.filter((e) => e.code === GraphErrorCode.CYCLE_DETECTED);
+    expect(cycleErrors.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('v2.0 workflow — unbounded cycle fails validation', () => {
+    const wf = loadFixture('graphs/v2-unbounded-cycle.yml');
+    const parser = new DAGParser(wf);
+    const result = parser.validate();
+
+    expect(result.valid).toBe(false);
+    const unboundedErrors = result.errors.filter((e) => e.code === GraphErrorCode.UNBOUNDED_CYCLE);
+    expect(unboundedErrors.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('v2.0 workflow — bounded cycle passes composite validation (validateWorkflowFull)', () => {
+    const yaml = loadFixtureYaml('graphs/v2-bounded-cycle.yml');
+    const result = validateWorkflowFull(yaml);
+
+    // Should pass — bounded cycles are valid in v2.0
+    // Note: may have dead-end warnings but no errors from cycle detection
+    if (!result.ok) {
+      const cycleErrors = result.errors.filter(
+        (e) => 'code' in e && (String(e.code) === 'CYCLE_DETECTED' || String(e.code) === 'UNBOUNDED_CYCLE'),
+      );
+      expect(cycleErrors).toHaveLength(0);
+    }
   });
 });
