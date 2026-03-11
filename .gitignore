@@ -15,8 +15,8 @@ coverage/
 # Package artifacts
 *.tgz
 
-# IDE
-.vscode/
+# IDE (root only)
+/.vscode/
 .idea/
 *.swp
 *.swo

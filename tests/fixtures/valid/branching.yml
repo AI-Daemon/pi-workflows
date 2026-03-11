@@ -1,0 +1,63 @@
+version: '1.0'
+workflow_name: complex-branching
+description: A complex workflow with conditional branching and merging paths.
+initial_node: entry
+
+nodes:
+  entry:
+    type: llm_decision
+    instruction: Classify the request.
+    required_schema:
+      category: string
+    transitions:
+      - condition: "category == 'a'"
+        target: path-a
+        priority: 0
+      - condition: "category == 'b'"
+        target: path-b
+        priority: 1
+      - condition: 'true'
+        target: fallback
+
+  path-a:
+    type: llm_task
+    instruction: Handle category A.
+    completion_schema:
+      summary: string
+    transitions:
+      - condition: 'true'
+        target: merge
+
+  path-b:
+    type: system_action
+    runtime: node
+    command: 'console.log("path-b")'
+    transitions:
+      - condition: 'true'
+        target: merge
+
+  fallback:
+    type: llm_task
+    instruction: Handle unknown category.
+    completion_schema:
+      reason: string
+    transitions:
+      - condition: 'true'
+        target: fail
+
+  merge:
+    type: llm_task
+    instruction: Merge results.
+    completion_schema:
+      final: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+
+  fail:
+    type: terminal
+    status: failure

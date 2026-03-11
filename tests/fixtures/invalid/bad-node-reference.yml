@@ -1,0 +1,18 @@
+version: '1.0'
+workflow_name: bad-node-ref
+description: initial_node references a node that does not exist.
+initial_node: nonexistent
+
+nodes:
+  start:
+    type: llm_decision
+    instruction: Do something.
+    required_schema:
+      answer: string
+    transitions:
+      - condition: 'true'
+        target: also-nonexistent
+
+  done:
+    type: terminal
+    status: success

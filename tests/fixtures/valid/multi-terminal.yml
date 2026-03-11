@@ -1,0 +1,35 @@
+version: '1.0'
+workflow_name: multi-terminal
+description: A workflow with multiple terminal nodes covering success, failure, and cancelled.
+initial_node: decide
+
+nodes:
+  decide:
+    type: llm_decision
+    instruction: Decide the outcome.
+    required_schema:
+      outcome: string
+    transitions:
+      - condition: "outcome == 'ok'"
+        target: success
+        priority: 0
+      - condition: "outcome == 'cancel'"
+        target: cancelled
+        priority: 1
+      - condition: 'true'
+        target: failure
+
+  success:
+    type: terminal
+    status: success
+    message: All good.
+
+  failure:
+    type: terminal
+    status: failure
+    message: Something went wrong.
+
+  cancelled:
+    type: terminal
+    status: cancelled
+    message: The operation was cancelled by the user.

@@ -1,0 +1,17 @@
+workflow_name: missing-version
+description: This workflow is missing the required version field.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_decision
+    instruction: Do something.
+    required_schema:
+      answer: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success

@@ -1,0 +1,23 @@
+version: '1.0'
+workflow_name: no-terminal
+description: This workflow has no terminal node.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_decision
+    instruction: Start here.
+    required_schema:
+      answer: string
+    transitions:
+      - condition: 'true'
+        target: middle
+
+  middle:
+    type: llm_task
+    instruction: Do work.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: start
