@@ -20,14 +20,31 @@ import type { AdvanceResult, SystemActionChainEntry } from './advance-result.js'
 // Public API
 // ---------------------------------------------------------------------------
 
+/** Cycle transition info for agent message formatting. */
+export interface CycleTransitionInfo {
+  /** Source node ID. */
+  fromNodeId: string;
+  /** Target node ID (the back-edge target). */
+  toNodeId: string;
+  /** Current visit count for the target node (after this transition). */
+  currentVisit: number;
+  /** Maximum visits allowed for the target node. */
+  maxVisits: number;
+}
+
 /**
  * Format an AdvanceResult into the agent-facing markdown message.
  *
  * @param result - The AdvanceResult to format.
  * @param workflowName - The workflow name for the header.
+ * @param cycleInfo - Optional cycle transition info for bounded cycle messages.
  * @returns Formatted markdown string.
  */
-export function formatAgentMessage(result: Omit<AdvanceResult, 'agentMessage'>, workflowName: string): string {
+export function formatAgentMessage(
+  result: Omit<AdvanceResult, 'agentMessage'>,
+  workflowName: string,
+  cycleInfo?: CycleTransitionInfo,
+): string {
   const lines: string[] = [];
 
   // Header
@@ -41,6 +58,13 @@ export function formatAgentMessage(result: Omit<AdvanceResult, 'agentMessage'>, 
     lines.push(`> STATUS: Workflow completed with status: ${result.terminalStatus ?? 'unknown'}`);
   } else {
     lines.push(`> STATUS: Transitioned to node`);
+  }
+
+  // Cycle transition info (P1)
+  if (cycleInfo) {
+    lines.push(
+      `> CYCLE: ${cycleInfo.fromNodeId} → ${cycleInfo.toNodeId} (attempt ${cycleInfo.currentVisit} of ${cycleInfo.maxVisits})`,
+    );
   }
 
   if (result.status === 'waiting_for_agent') {

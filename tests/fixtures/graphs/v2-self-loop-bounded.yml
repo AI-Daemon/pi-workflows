@@ -1,0 +1,33 @@
+# v2.0 workflow with a self-loop — retry_node transitions back to itself.
+# max_visits: 5 makes this a valid bounded self-loop.
+
+version: '2.0'
+workflow_name: v2-self-loop-bounded
+description: Graph fixture for bounded self-loop validation.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: retry_node
+
+  retry_node:
+    type: system_action
+    runtime: bash
+    command: 'echo retry'
+    max_visits: 5
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done
+      - condition: 'action_result.exit_code != 0'
+        target: retry_node
+
+  done:
+    type: terminal
+    status: success
+    message: Done.

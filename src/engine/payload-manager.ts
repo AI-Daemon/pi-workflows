@@ -192,6 +192,11 @@ export class PayloadManager {
       }
     }
 
+    // Protect $metadata as a reserved key — prevent user payloads from overwriting it
+    if ('$metadata' in clonedData) {
+      delete clonedData['$metadata'];
+    }
+
     // Apply the deep merge
     this.payload = deepMerge({ ...this.payload }, clonedData);
 

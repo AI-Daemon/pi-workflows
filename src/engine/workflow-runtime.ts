@@ -28,7 +28,7 @@ import type {
 } from '../schemas/workflow.schema.js';
 import type { Result } from '../utils/result.js';
 import type { ValidationError } from '../schemas/errors.js';
-import type { ExpressionContext, ActionResult } from './expression-context.js';
+import type { ExpressionContext, ActionResult, WorkflowMetadata } from './expression-context.js';
 import type { ExecutorActionResult, ExecutorOptions } from './action-result.js';
 import type { WorkflowInstance, AdvanceResult, SystemActionChainEntry } from './advance-result.js';
 import type { InstanceStore } from './instance-store.js';
@@ -42,6 +42,7 @@ import { PayloadManager } from './payload-manager.js';
 import { SystemActionExecutor } from './system-action-executor.js';
 import { resolveTemplate } from './template-engine.js';
 import { formatAgentMessage } from './agent-message-formatter.js';
+import type { CycleTransitionInfo } from './agent-message-formatter.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -156,6 +157,18 @@ export class WorkflowRuntime extends EventEmitter {
     const initialNodeId = definition.initial_node;
     const initialNode = definition.nodes[initialNodeId]!;
 
+    // Initialize $metadata for visit tracking
+    const metadata: WorkflowMetadata = {
+      visits: {},
+      state_hashes: [],
+      instance_id: instanceId,
+      started_at: new Date(now).toISOString(),
+    };
+
+    const payload: Record<string, unknown> = initialPayload ? structuredClone(initialPayload) : {};
+    // Store $metadata in the payload (protected from user overwrites by PayloadManager)
+    payload['$metadata'] = metadata;
+
     const instance: WorkflowInstance = {
       instanceId,
       workflowId,
@@ -163,11 +176,14 @@ export class WorkflowRuntime extends EventEmitter {
       status: 'active',
       currentNodeId: initialNodeId,
       currentNodeType: initialNode.type,
-      payload: initialPayload ? structuredClone(initialPayload) : {},
+      payload,
       history: [],
       createdAt: now,
       updatedAt: now,
     };
+
+    // Increment visit count for the initial node
+    metadata.visits[initialNodeId] = (metadata.visits[initialNodeId] ?? 0) + 1;
 
     // Add initial history entry
     instance.history.push({
@@ -209,7 +225,7 @@ export class WorkflowRuntime extends EventEmitter {
       };
     }
 
-    // Check instance is active/waiting
+    // Check instance is active/waiting (also reject suspended instances)
     if (instance.status !== 'active' && instance.status !== 'waiting_for_agent') {
       return {
         ok: false,
@@ -263,7 +279,7 @@ export class WorkflowRuntime extends EventEmitter {
       };
     }
 
-    // Merge agent payload into instance
+    // Merge agent payload into instance (PayloadManager protects $metadata)
     const payloadManager = new PayloadManager(instance.payload);
     payloadManager.merge(nodeId, nodePayload);
     instance.payload = payloadManager.getPayload() as Record<string, unknown>;
@@ -276,43 +292,31 @@ export class WorkflowRuntime extends EventEmitter {
 
     this.emit('node:completed', instanceId, nodeId, nodePayload);
 
-    // Build expression context for transition evaluation
+    // Build expression context for transition evaluation (with $metadata)
+    const $metadata = instance.payload['$metadata'] as WorkflowMetadata | undefined;
     const context: ExpressionContext = {
       payload: instance.payload,
       ...(definition.metadata ? { metadata: definition.metadata } : {}),
+      ...($metadata ? { $metadata } : {}),
     };
 
-    // Evaluate transitions
-    const transitionResult = await this.evaluator.evaluateTransitions(
+    // Evaluate transitions with max_visits enforcement
+    const transitionTarget = await this.evaluateTransitionsWithBudget(
       currentNode.type !== 'terminal' ? currentNode.transitions : [],
       context,
+      instance,
+      definition,
+      nodeId,
     );
 
-    if (!transitionResult.ok) {
-      const error: RuntimeError = {
-        code: RuntimeErrorCode.EXPRESSION_ERROR,
-        message: `Expression evaluation failed: ${transitionResult.errors.message}`,
-        instanceId,
-        nodeId,
-      };
-      this.emit('error', instanceId, error);
-      return { ok: false, errors: error };
+    if (!transitionTarget.ok) {
+      return transitionTarget;
     }
 
-    const targetNodeId = transitionResult.data;
-    if (!targetNodeId) {
-      const error: RuntimeError = {
-        code: RuntimeErrorCode.NO_MATCHING_TRANSITION,
-        message: `No transition matched for node "${nodeId}"`,
-        instanceId,
-        nodeId,
-      };
-      this.emit('error', instanceId, error);
-      return { ok: false, errors: error };
-    }
+    const targetNodeId = transitionTarget.data.targetNodeId;
 
-    // Transition to next node
-    return this.transitionTo(instance, definition, targetNodeId);
+    // Transition to next node (with cycle info for agent message)
+    return this.transitionTo(instance, definition, targetNodeId, transitionTarget.data.cycleInfo);
   }
 
   /**
@@ -345,7 +349,12 @@ export class WorkflowRuntime extends EventEmitter {
       };
     }
 
-    if (instance.status === 'completed' || instance.status === 'failed' || instance.status === 'cancelled') {
+    if (
+      instance.status === 'completed' ||
+      instance.status === 'failed' ||
+      instance.status === 'cancelled' ||
+      instance.status === 'suspended'
+    ) {
       return {
         ok: false,
         errors: {
@@ -384,6 +393,7 @@ export class WorkflowRuntime extends EventEmitter {
     instance: WorkflowInstance,
     definition: WorkflowDefinition,
     systemActionResults?: SystemActionChainEntry[],
+    cycleInfo?: CycleTransitionInfo,
   ): Promise<Result<AdvanceResult, RuntimeError>> {
     const chainResults: SystemActionChainEntry[] = systemActionResults ?? [];
     let chainCount = chainResults.length;
@@ -428,7 +438,7 @@ export class WorkflowRuntime extends EventEmitter {
 
         this.emit('node:completed', instance.instanceId, nodeId, execResult.data);
 
-        // Build context with action_result for transition evaluation
+        // Build context with action_result for transition evaluation (with $metadata)
         const actionResult: ActionResult = {
           exit_code: execResult.data.exit_code,
           stdout: execResult.data.stdout,
@@ -436,43 +446,40 @@ export class WorkflowRuntime extends EventEmitter {
           ...(execResult.data.data !== undefined ? { data: execResult.data.data } : {}),
         };
 
+        const $metadata = instance.payload['$metadata'] as WorkflowMetadata | undefined;
         const context: ExpressionContext = {
           payload: instance.payload,
           action_result: actionResult,
           ...(definition.metadata ? { metadata: definition.metadata } : {}),
+          ...($metadata ? { $metadata } : {}),
         };
 
-        // Evaluate transitions
-        const transitionResult = await this.evaluator.evaluateTransitions(node.transitions, context);
+        // Evaluate transitions with budget enforcement
+        const transitionTarget = await this.evaluateTransitionsWithBudget(
+          node.transitions,
+          context,
+          instance,
+          definition,
+          nodeId,
+        );
 
-        if (!transitionResult.ok) {
-          const error: RuntimeError = {
-            code: RuntimeErrorCode.EXPRESSION_ERROR,
-            message: `Expression evaluation failed: ${transitionResult.errors.message}`,
-            instanceId: instance.instanceId,
-            nodeId,
-          };
-          this.emit('error', instance.instanceId, error);
-          return { ok: false, errors: error };
+        if (!transitionTarget.ok) {
+          return transitionTarget;
         }
 
-        const targetNodeId = transitionResult.data;
-        if (!targetNodeId) {
-          const error: RuntimeError = {
-            code: RuntimeErrorCode.NO_MATCHING_TRANSITION,
-            message: `No transition matched for system_action node "${nodeId}"`,
-            instanceId: instance.instanceId,
-            nodeId,
-          };
-          this.emit('error', instance.instanceId, error);
-          return { ok: false, errors: error };
-        }
+        const targetNodeId = transitionTarget.data.targetNodeId;
+        const newCycleInfo = transitionTarget.data.cycleInfo;
 
         // Transition to the next node (update instance state)
         const targetNode = definition.nodes[targetNodeId]!;
         instance.currentNodeId = targetNodeId;
         instance.currentNodeType = targetNode.type;
         instance.updatedAt = Date.now();
+
+        // Increment visit count in $metadata
+        if ($metadata) {
+          $metadata.visits[targetNodeId] = ($metadata.visits[targetNodeId] ?? 0) + 1;
+        }
 
         // Add history entry for new node
         instance.history.push({
@@ -484,12 +491,15 @@ export class WorkflowRuntime extends EventEmitter {
 
         this.emit('node:entered', instance.instanceId, targetNodeId);
 
+        // Pass cycle info forward for next iteration
+        cycleInfo = newCycleInfo;
+
         // Continue the loop — if next node is also system_action, auto-advance
         continue;
       }
 
       if (node.type === 'llm_decision' || node.type === 'llm_task') {
-        return this.buildLlmAdvanceResult(instance, definition, node, chainResults);
+        return this.buildLlmAdvanceResult(instance, definition, node, chainResults, cycleInfo);
       }
 
       if (node.type === 'terminal') {
@@ -518,6 +528,7 @@ export class WorkflowRuntime extends EventEmitter {
     instance: WorkflowInstance,
     definition: WorkflowDefinition,
     targetNodeId: string,
+    cycleInfo?: CycleTransitionInfo,
   ): Promise<Result<AdvanceResult, RuntimeError>> {
     const targetNode = definition.nodes[targetNodeId]!;
 
@@ -525,6 +536,12 @@ export class WorkflowRuntime extends EventEmitter {
     instance.currentNodeId = targetNodeId;
     instance.currentNodeType = targetNode.type;
     instance.updatedAt = Date.now();
+
+    // Increment visit count in $metadata
+    const $metadata = instance.payload['$metadata'] as WorkflowMetadata | undefined;
+    if ($metadata) {
+      $metadata.visits[targetNodeId] = ($metadata.visits[targetNodeId] ?? 0) + 1;
+    }
 
     // Add history entry
     instance.history.push({
@@ -537,7 +554,134 @@ export class WorkflowRuntime extends EventEmitter {
     this.emit('node:entered', instance.instanceId, targetNodeId);
 
     // Process the new current node
-    return this.processCurrentNode(instance, definition);
+    return this.processCurrentNode(instance, definition, undefined, cycleInfo);
+  }
+
+  // -----------------------------------------------------------------------
+  // Internal: Transition evaluation with max_visits enforcement
+  // -----------------------------------------------------------------------
+
+  /**
+   * Evaluate transitions with max_visits budget enforcement.
+   *
+   * For each matching transition, checks whether the target node has
+   * `max_visits` and whether the budget is exhausted. If all transitions
+   * are blocked, looks for a suspended terminal fallback.
+   */
+  private async evaluateTransitionsWithBudget(
+    transitions: Array<{ condition: string; target: string; priority?: number | undefined }>,
+    context: ExpressionContext,
+    instance: WorkflowInstance,
+    definition: WorkflowDefinition,
+    fromNodeId: string,
+  ): Promise<Result<{ targetNodeId: string; cycleInfo?: CycleTransitionInfo }, RuntimeError>> {
+    const $metadata = instance.payload['$metadata'] as WorkflowMetadata | undefined;
+
+    // Sort by priority (ascending)
+    const sorted = [...transitions].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+
+    for (const transition of sorted) {
+      const result = await this.evaluator.evaluate(transition.condition, context);
+
+      if (!result.ok) {
+        const error: RuntimeError = {
+          code: RuntimeErrorCode.EXPRESSION_ERROR,
+          message: `Expression evaluation failed: ${result.errors.message}`,
+          instanceId: instance.instanceId,
+          nodeId: fromNodeId,
+        };
+        this.emit('error', instance.instanceId, error);
+        return { ok: false, errors: error };
+      }
+
+      if (result.data === true) {
+        const targetNodeId = transition.target;
+        const targetNodeDef = definition.nodes[targetNodeId];
+
+        // Check max_visits budget for the target node
+        if (
+          targetNodeDef &&
+          targetNodeDef.type !== 'terminal' &&
+          'max_visits' in targetNodeDef &&
+          targetNodeDef.max_visits !== undefined &&
+          $metadata
+        ) {
+          const currentVisits = $metadata.visits[targetNodeId] ?? 0;
+          if (currentVisits >= targetNodeDef.max_visits) {
+            // Budget exhausted for this target — skip this transition
+            continue;
+          }
+
+          // Build cycle info for agent messaging
+          const cycleInfo: CycleTransitionInfo = {
+            fromNodeId,
+            toNodeId: targetNodeId,
+            currentVisit: currentVisits + 1,
+            maxVisits: targetNodeDef.max_visits,
+          };
+
+          return {
+            ok: true,
+            data: { targetNodeId, cycleInfo },
+          };
+        }
+
+        return {
+          ok: true,
+          data: { targetNodeId },
+        };
+      }
+    }
+
+    // No transition matched — check if this is due to budget exhaustion
+    // Look for a suspended terminal fallback
+    for (const [nodeId, nodeDef] of Object.entries(definition.nodes)) {
+      if (nodeDef.type === 'terminal' && nodeDef.status === 'suspended') {
+        return {
+          ok: true,
+          data: { targetNodeId: nodeId },
+        };
+      }
+    }
+
+    // Check if any transitions were skipped due to budget — if so, it's a BUDGET_EXHAUSTED error
+    // vs. NO_MATCHING_TRANSITION. We check if at least one transition condition was true but skipped.
+    if ($metadata) {
+      for (const transition of sorted) {
+        const result = await this.evaluator.evaluate(transition.condition, context);
+        if (result.ok && result.data === true) {
+          const targetNodeDef = definition.nodes[transition.target];
+          if (
+            targetNodeDef &&
+            targetNodeDef.type !== 'terminal' &&
+            'max_visits' in targetNodeDef &&
+            targetNodeDef.max_visits !== undefined
+          ) {
+            const currentVisits = $metadata.visits[transition.target] ?? 0;
+            if (currentVisits >= targetNodeDef.max_visits) {
+              const error: RuntimeError = {
+                code: RuntimeErrorCode.BUDGET_EXHAUSTED,
+                message: `All transitions from node "${fromNodeId}" are blocked because target nodes have exhausted their max_visits budget`,
+                instanceId: instance.instanceId,
+                nodeId: fromNodeId,
+              };
+              this.emit('error', instance.instanceId, error);
+              return { ok: false, errors: error };
+            }
+          }
+        }
+      }
+    }
+
+    // No transitions matched at all (not budget related)
+    const error: RuntimeError = {
+      code: RuntimeErrorCode.NO_MATCHING_TRANSITION,
+      message: `No transition matched for node "${fromNodeId}"`,
+      instanceId: instance.instanceId,
+      nodeId: fromNodeId,
+    };
+    this.emit('error', instance.instanceId, error);
+    return { ok: false, errors: error };
   }
 
   // -----------------------------------------------------------------------
@@ -606,6 +750,7 @@ export class WorkflowRuntime extends EventEmitter {
     definition: WorkflowDefinition,
     node: LlmDecisionNode | LlmTaskNode,
     chainResults: SystemActionChainEntry[],
+    cycleInfo?: CycleTransitionInfo,
   ): Promise<Result<AdvanceResult, RuntimeError>> {
     instance.status = 'waiting_for_agent';
     instance.updatedAt = Date.now();
@@ -642,7 +787,7 @@ export class WorkflowRuntime extends EventEmitter {
       (partialResult as AdvanceResult).systemActionResults = chainResults;
     }
 
-    const agentMessage = formatAgentMessage(partialResult, instance.workflowName);
+    const agentMessage = formatAgentMessage(partialResult, instance.workflowName, cycleInfo);
 
     const advanceResult: AdvanceResult = {
       ...partialResult,
@@ -665,7 +810,8 @@ export class WorkflowRuntime extends EventEmitter {
     chainResults: SystemActionChainEntry[],
   ): Promise<Result<AdvanceResult, RuntimeError>> {
     const now = Date.now();
-    instance.status = 'completed';
+    // Map terminal status 'suspended' to InstanceStatus 'suspended', all others to 'completed'
+    instance.status = node.status === 'suspended' ? 'suspended' : 'completed';
     instance.terminalStatus = node.status;
     instance.completedAt = now;
     instance.updatedAt = now;
@@ -691,7 +837,7 @@ export class WorkflowRuntime extends EventEmitter {
 
     const partialResult: Omit<AdvanceResult, 'agentMessage'> = {
       instanceId: instance.instanceId,
-      status: 'completed',
+      status: instance.status,
       terminalStatus: node.status,
       ...(resolvedMessage !== undefined ? { terminalMessage: resolvedMessage } : {}),
     };

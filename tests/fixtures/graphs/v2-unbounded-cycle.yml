@@ -1,0 +1,41 @@
+# v2.0 workflow with unbounded cycle — run_tests has NO max_visits.
+# Used by graph-validator tests to verify UNBOUNDED_CYCLE error is raised.
+
+version: '2.0'
+workflow_name: v2-unbounded-cycle-graph
+description: Graph fixture for unbounded cycle validation.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin the task.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'payload.status == "done"'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo test'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done
+      - condition: 'action_result.exit_code != 0'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix the failing tests.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+    message: All tests pass.

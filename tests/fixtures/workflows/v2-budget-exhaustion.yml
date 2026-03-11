@@ -1,0 +1,44 @@
+# Runtime test fixture: cycle that hits max_visits and triggers budget exhaustion.
+# run_tests has max_visits: 2, so after 2 visits budget is exhausted.
+# No suspended terminal — should trigger BUDGET_EXHAUSTED error.
+
+version: '2.0'
+workflow_name: v2-budget-exhaustion
+description: Runtime test for budget exhaustion without suspended fallback.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_task
+    instruction: Begin.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  run_tests:
+    type: system_action
+    runtime: bash
+    command: 'echo "running tests"'
+    max_visits: 2
+    transitions:
+      - condition: 'payload.tests_pass == true'
+        target: done
+      - condition: 'true'
+        target: fix
+
+  fix:
+    type: llm_task
+    instruction: Fix the failing tests.
+    completion_schema:
+      status: string
+      tests_pass: boolean
+    transitions:
+      - condition: 'true'
+        target: run_tests
+
+  done:
+    type: terminal
+    status: success
+    message: All tests pass.

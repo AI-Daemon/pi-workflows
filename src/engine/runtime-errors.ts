@@ -29,6 +29,8 @@ export enum RuntimeErrorCode {
   SYSTEM_ACTION_CHAIN_LIMIT = 'SYSTEM_ACTION_CHAIN_LIMIT',
   /** A system action execution failed (security violation, etc.). */
   SYSTEM_ACTION_FAILED = 'SYSTEM_ACTION_FAILED',
+  /** All transitions are blocked because target nodes have exhausted their max_visits budget. */
+  BUDGET_EXHAUSTED = 'BUDGET_EXHAUSTED',
 }
 
 // ---------------------------------------------------------------------------
