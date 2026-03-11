@@ -1,0 +1,48 @@
+# Diamond shape: A → B, A → C, B → D, C → D (no cycle)
+version: '1.0'
+workflow_name: diamond-valid
+description: A valid diamond-shaped workflow with no cycles.
+initial_node: node-a
+
+nodes:
+  node-a:
+    type: llm_decision
+    instruction: Entry with two branches.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: "choice == 'left'"
+        target: node-b
+      - condition: 'true'
+        target: node-c
+
+  node-b:
+    type: llm_task
+    instruction: Left branch.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: node-d
+
+  node-c:
+    type: llm_task
+    instruction: Right branch.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: node-d
+
+  node-d:
+    type: llm_decision
+    instruction: Merge point.
+    required_schema:
+      final: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success

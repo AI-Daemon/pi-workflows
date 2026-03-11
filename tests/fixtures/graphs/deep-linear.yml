@@ -1,0 +1,156 @@
+# A 20-node linear chain
+version: '1.0'
+workflow_name: deep-linear
+description: A deep linear workflow with 20 nodes.
+initial_node: node-01
+
+nodes:
+  node-01:
+    type: llm_decision
+    instruction: Node 1.
+    required_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-02
+  node-02:
+    type: llm_task
+    instruction: Node 2.
+    completion_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-03
+  node-03:
+    type: system_action
+    runtime: bash
+    command: echo 3
+    transitions:
+      - condition: 'true'
+        target: node-04
+  node-04:
+    type: llm_decision
+    instruction: Node 4.
+    required_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-05
+  node-05:
+    type: llm_task
+    instruction: Node 5.
+    completion_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-06
+  node-06:
+    type: system_action
+    runtime: bash
+    command: echo 6
+    transitions:
+      - condition: 'true'
+        target: node-07
+  node-07:
+    type: llm_decision
+    instruction: Node 7.
+    required_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-08
+  node-08:
+    type: llm_task
+    instruction: Node 8.
+    completion_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-09
+  node-09:
+    type: system_action
+    runtime: bash
+    command: echo 9
+    transitions:
+      - condition: 'true'
+        target: node-10
+  node-10:
+    type: llm_decision
+    instruction: Node 10.
+    required_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-11
+  node-11:
+    type: llm_task
+    instruction: Node 11.
+    completion_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-12
+  node-12:
+    type: system_action
+    runtime: bash
+    command: echo 12
+    transitions:
+      - condition: 'true'
+        target: node-13
+  node-13:
+    type: llm_decision
+    instruction: Node 13.
+    required_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-14
+  node-14:
+    type: llm_task
+    instruction: Node 14.
+    completion_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-15
+  node-15:
+    type: system_action
+    runtime: bash
+    command: echo 15
+    transitions:
+      - condition: 'true'
+        target: node-16
+  node-16:
+    type: llm_decision
+    instruction: Node 16.
+    required_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-17
+  node-17:
+    type: llm_task
+    instruction: Node 17.
+    completion_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: node-18
+  node-18:
+    type: system_action
+    runtime: bash
+    command: echo 18
+    transitions:
+      - condition: 'true'
+        target: node-19
+  node-19:
+    type: llm_decision
+    instruction: Node 19.
+    required_schema:
+      x: string
+    transitions:
+      - condition: 'true'
+        target: done
+  done:
+    type: terminal
+    status: success

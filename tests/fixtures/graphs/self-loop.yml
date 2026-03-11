@@ -1,0 +1,19 @@
+# Self-loop: A → A
+version: '1.0'
+workflow_name: self-loop
+description: A workflow with a self-referencing node.
+initial_node: node-a
+
+nodes:
+  node-a:
+    type: llm_decision
+    instruction: Loops to itself.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: node-a
+
+  done:
+    type: terminal
+    status: success

@@ -1,0 +1,48 @@
+# A branch that never reaches a terminal node
+version: '1.0'
+workflow_name: dead-end-branch
+description: A workflow where one branch leads to a dead end.
+initial_node: start
+
+nodes:
+  start:
+    type: llm_decision
+    instruction: Entry node with two paths.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: "choice == 'good'"
+        target: good-path
+      - condition: 'true'
+        target: dead-end
+
+  good-path:
+    type: llm_task
+    instruction: This path reaches the terminal.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  dead-end:
+    type: llm_task
+    instruction: This path leads nowhere useful.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: also-stuck
+
+  also-stuck:
+    type: llm_decision
+    instruction: Also stuck — transitions back to dead-end forming a cycle.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: dead-end
+
+  done:
+    type: terminal
+    status: success

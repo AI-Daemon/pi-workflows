@@ -1,0 +1,28 @@
+# Simple cycle: A → B → A
+version: '1.0'
+workflow_name: simple-cycle
+description: A workflow with a simple two-node cycle.
+initial_node: node-a
+
+nodes:
+  node-a:
+    type: llm_decision
+    instruction: First node.
+    required_schema:
+      choice: string
+    transitions:
+      - condition: 'true'
+        target: node-b
+
+  node-b:
+    type: llm_task
+    instruction: Second node.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: node-a
+
+  done:
+    type: terminal
+    status: success
