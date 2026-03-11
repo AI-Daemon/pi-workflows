@@ -1,0 +1,53 @@
+# v2.0 workflow demonstrating max_visits on all non-terminal node types:
+# llm_decision, llm_task, and system_action.
+
+version: '2.0'
+workflow_name: max-visits-all-types
+description: Tests max_visits on llm_decision, llm_task, and system_action node types.
+initial_node: decide
+
+nodes:
+  decide:
+    type: llm_decision
+    instruction: Decide what action to take.
+    required_schema:
+      action: string
+    max_visits: 5
+    transitions:
+      - condition: "payload.action == 'run'"
+        target: execute
+      - condition: "payload.action == 'task'"
+        target: do_work
+      - condition: 'true'
+        target: done
+
+  do_work:
+    type: llm_task
+    instruction: Perform the requested work.
+    completion_schema:
+      result: string
+    max_visits: 3
+    transitions:
+      - condition: 'true'
+        target: execute
+
+  execute:
+    type: system_action
+    runtime: bash
+    command: 'echo "running"'
+    max_visits: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: done
+      - condition: 'true'
+        target: failed
+
+  done:
+    type: terminal
+    status: success
+    message: Completed.
+
+  failed:
+    type: terminal
+    status: failure
+    message: Failed.

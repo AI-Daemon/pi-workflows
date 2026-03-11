@@ -1,0 +1,22 @@
+# Invalid: extract_json is only allowed on system_action nodes.
+# Using it on an llm_decision node should fail strict schema validation.
+
+version: '2.0'
+workflow_name: extract-json-on-llm
+description: Invalid workflow with extract_json on an llm_decision node.
+initial_node: decide
+
+nodes:
+  decide:
+    type: llm_decision
+    instruction: Make a decision.
+    required_schema:
+      action: string
+    extract_json: '/tmp/dawe/output.json'
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success

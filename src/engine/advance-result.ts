@@ -17,7 +17,7 @@ import type { ExecutorActionResult } from './action-result.js';
 // ---------------------------------------------------------------------------
 
 /** Status of a workflow instance. */
-export type InstanceStatus = 'active' | 'waiting_for_agent' | 'completed' | 'failed' | 'cancelled';
+export type InstanceStatus = 'active' | 'waiting_for_agent' | 'completed' | 'failed' | 'cancelled' | 'suspended';
 
 /** A single entry in the instance's node visit history. */
 export interface InstanceHistoryEntry {
@@ -58,7 +58,7 @@ export interface WorkflowInstance {
   /** Unix timestamp (ms) when the instance completed (if applicable). */
   completedAt?: number;
   /** Terminal status (if completed). */
-  terminalStatus?: 'success' | 'failure' | 'cancelled';
+  terminalStatus?: 'success' | 'failure' | 'cancelled' | 'suspended';
   /** Terminal message (if completed). */
   terminalMessage?: string;
 }
@@ -100,7 +100,7 @@ export interface AdvanceResult {
   // -- Fields for 'completed' status --
 
   /** Terminal status (when completed). */
-  terminalStatus?: 'success' | 'failure' | 'cancelled';
+  terminalStatus?: 'success' | 'failure' | 'cancelled' | 'suspended';
   /** Terminal message (when completed). */
   terminalMessage?: string;
 

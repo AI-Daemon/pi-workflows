@@ -1,0 +1,30 @@
+# v2.0 workflow with extract_json on a system_action node.
+# The engine will parse the JSON file at the specified path and merge
+# the result into payload.extracted_json.
+
+version: '2.0'
+workflow_name: extract-json-test
+description: Tests v2.0 extract_json support on system_action nodes.
+initial_node: run_checks
+
+nodes:
+  run_checks:
+    type: system_action
+    runtime: bash
+    command: 'npm run lint -- --format=json > /tmp/dawe/lint.json'
+    extract_json: '/tmp/dawe/lint.json'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: success
+      - condition: 'action_result.exit_code != 0'
+        target: failure
+
+  success:
+    type: terminal
+    status: success
+    message: All checks passed.
+
+  failure:
+    type: terminal
+    status: failure
+    message: Checks failed.

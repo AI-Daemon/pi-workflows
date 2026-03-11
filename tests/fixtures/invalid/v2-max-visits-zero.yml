@@ -1,0 +1,20 @@
+# Invalid: max_visits must be at least 1 — 0 is not allowed.
+
+version: '2.0'
+workflow_name: max-visits-zero
+description: Invalid workflow with max_visits set to zero.
+initial_node: start
+
+nodes:
+  start:
+    type: system_action
+    runtime: bash
+    command: 'echo hello'
+    max_visits: 0
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success

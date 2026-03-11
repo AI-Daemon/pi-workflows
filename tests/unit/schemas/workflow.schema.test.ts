@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { validateWorkflow, loadWorkflow, SchemaErrorCode } from '../../../src/schemas/index.js';
+import { validateWorkflow, loadWorkflow, SchemaErrorCode, getSchemaVersion } from '../../../src/schemas/index.js';
 import type { ValidationError } from '../../../src/schemas/index.js';
 
 // ---------------------------------------------------------------------------
@@ -166,8 +166,13 @@ describe('Invalid workflows — structural errors', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('rejects an invalid version value ("2.0")', () => {
+  it('accepts version "2.0" as valid', () => {
     const result = validateWorkflow(minimalWorkflow({ version: '2.0' }));
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects an invalid version value ("3.0")', () => {
+    const result = validateWorkflow(minimalWorkflow({ version: '3.0' }));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       const err = result.errors.find((e) => e.path === 'version');
@@ -416,7 +421,7 @@ describe('loadWorkflow', () => {
 
   it('returns schema errors for valid YAML with invalid schema', () => {
     const yaml = `
-version: '2.0'
+version: '3.0'
 workflow_name: bad
 description: Bad workflow
 initial_node: x
@@ -467,5 +472,235 @@ describe('validateWorkflow', () => {
     if (!result.ok) {
       expect(result.errors.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ===================================================================
+// v2.0 Schema — max_visits, extract_json, bounded cycles
+// ===================================================================
+
+describe('v2.0 Schema — max_visits', () => {
+  it('v2.0 workflow with max_visits on system_action → valid', () => {
+    const result = loadWorkflow(readFixture('valid/v2-bounded-cycle.yml'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.version).toBe('2.0');
+      const runTests = result.data.nodes['run_tests'];
+      expect(runTests).toBeDefined();
+      if (runTests?.type === 'system_action') {
+        expect(runTests.max_visits).toBe(3);
+      }
+    }
+  });
+
+  it('v2.0 workflow with max_visits on llm_task → valid', () => {
+    const result = loadWorkflow(readFixture('valid/v2-max-visits-all-types.yml'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const doWork = result.data.nodes['do_work'];
+      expect(doWork).toBeDefined();
+      if (doWork?.type === 'llm_task') {
+        expect(doWork.max_visits).toBe(3);
+      }
+    }
+  });
+
+  it('v2.0 workflow with max_visits on llm_decision → valid', () => {
+    const result = loadWorkflow(readFixture('valid/v2-max-visits-all-types.yml'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const decide = result.data.nodes['decide'];
+      expect(decide).toBeDefined();
+      if (decide?.type === 'llm_decision') {
+        expect(decide.max_visits).toBe(5);
+      }
+    }
+  });
+
+  it('v2.0 workflow without max_visits (no cycles) → valid', () => {
+    const result = loadWorkflow(readFixture('valid/v2-extract-json.yml'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.version).toBe('2.0');
+      const runChecks = result.data.nodes['run_checks'];
+      if (runChecks?.type === 'system_action') {
+        expect(runChecks.max_visits).toBeUndefined();
+      }
+    }
+  });
+
+  it('v2.0 workflow with max_visits: 0 → invalid', () => {
+    const result = loadWorkflow(readFixture('invalid/v2-max-visits-zero.yml'));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const hasMaxVisitsError = result.errors.some(
+        (e) => e.message.includes('max_visits') || e.path.includes('max_visits'),
+      );
+      expect(hasMaxVisitsError).toBe(true);
+    }
+  });
+
+  it('v2.0 workflow with max_visits: -1 → invalid', () => {
+    const result = loadWorkflow(readFixture('invalid/v2-max-visits-negative.yml'));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const hasMaxVisitsError = result.errors.some(
+        (e) => e.message.includes('max_visits') || e.path.includes('max_visits'),
+      );
+      expect(hasMaxVisitsError).toBe(true);
+    }
+  });
+
+  it('v2.0 workflow with max_visits: 101 → invalid (exceeds maximum)', () => {
+    const wf = minimalWorkflow({
+      version: '2.0',
+      nodes: {
+        start: {
+          type: 'system_action',
+          runtime: 'bash',
+          command: 'echo hello',
+          max_visits: 101,
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const hasMaxVisitsError = result.errors.some(
+        (e) => e.message.includes('max_visits') || e.path.includes('max_visits'),
+      );
+      expect(hasMaxVisitsError).toBe(true);
+    }
+  });
+
+  it('v1.0 workflow unchanged → still valid', () => {
+    const result = loadWorkflow(readFixture('valid/minimal.yml'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.version).toBe('1.0');
+    }
+  });
+
+  it('v1.0 workflow with max_visits → valid (field is optional, ignored at runtime for v1.0)', () => {
+    const wf = minimalWorkflow({
+      version: '1.0',
+      nodes: {
+        start: {
+          type: 'system_action',
+          runtime: 'bash',
+          command: 'echo hello',
+          max_visits: 5,
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const start = result.data.nodes['start'];
+      if (start?.type === 'system_action') {
+        expect(start.max_visits).toBe(5);
+      }
+    }
+  });
+});
+
+describe('v2.0 Schema — extract_json', () => {
+  it('v2.0 workflow with extract_json on system_action → valid', () => {
+    const result = loadWorkflow(readFixture('valid/v2-extract-json.yml'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const runChecks = result.data.nodes['run_checks'];
+      if (runChecks?.type === 'system_action') {
+        expect(runChecks.extract_json).toBe('/tmp/dawe/lint.json');
+      }
+    }
+  });
+
+  it('extract_json on llm_decision node → invalid (strict schema rejects unknown fields)', () => {
+    const result = loadWorkflow(readFixture('invalid/v2-extract-json-on-llm-node.yml'));
+    expect(result.ok).toBe(false);
+  });
+
+  it('extract_json on llm_task node → invalid', () => {
+    const wf = minimalWorkflow({
+      version: '2.0',
+      nodes: {
+        start: {
+          type: 'llm_task',
+          instruction: 'Do work.',
+          completion_schema: { result: 'string' },
+          extract_json: '/tmp/output.json',
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('v2.0 Schema — suspended terminal status', () => {
+  it('v2.0 workflow with suspended terminal → valid', () => {
+    const result = loadWorkflow(readFixture('valid/v2-bounded-cycle.yml'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const humanIntervention = result.data.nodes['human_intervention'];
+      expect(humanIntervention).toBeDefined();
+      if (humanIntervention?.type === 'terminal') {
+        expect(humanIntervention.status).toBe('suspended');
+      }
+    }
+  });
+
+  it('suspended terminal in v1.0 workflow → also valid (schema allows it)', () => {
+    const wf = minimalWorkflow({
+      version: '1.0',
+      nodes: {
+        start: {
+          type: 'llm_decision',
+          instruction: 'Decide.',
+          required_schema: { answer: 'string' },
+          transitions: [{ condition: 'true', target: 'suspended' }],
+        },
+        suspended: { type: 'terminal', status: 'suspended', message: 'Needs human review.' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+  });
+});
+
+// ===================================================================
+// getSchemaVersion utility
+// ===================================================================
+
+describe('getSchemaVersion', () => {
+  it('returns "1.0" for a v1.0 workflow', () => {
+    expect(getSchemaVersion({ version: '1.0' })).toBe('1.0');
+  });
+
+  it('returns "2.0" for a v2.0 workflow', () => {
+    expect(getSchemaVersion({ version: '2.0' })).toBe('2.0');
+  });
+
+  it('returns undefined for unknown version', () => {
+    expect(getSchemaVersion({ version: '3.0' })).toBeUndefined();
+  });
+
+  it('returns undefined for missing version field', () => {
+    expect(getSchemaVersion({})).toBeUndefined();
+  });
+
+  it('returns undefined for null input', () => {
+    expect(getSchemaVersion(null)).toBeUndefined();
+  });
+
+  it('returns undefined for non-object input', () => {
+    expect(getSchemaVersion('1.0')).toBeUndefined();
   });
 });

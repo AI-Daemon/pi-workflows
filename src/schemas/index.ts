@@ -27,6 +27,9 @@ export type {
   TerminalNode,
 } from './workflow.schema.js';
 
+// Utility functions
+export { getSchemaVersion } from './workflow.schema.js';
+
 // Validation functions
 export { validateWorkflow, loadWorkflow } from './validation.js';
 

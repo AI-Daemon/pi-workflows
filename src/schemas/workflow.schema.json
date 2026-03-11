@@ -2,16 +2,16 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/AI-Daemon/pi-workflows/blob/main/src/schemas/workflow.schema.json",
   "title": "DAWE Workflow Definition",
-  "description": "Schema for Declarative Agent Workflow Engine (DAWE) workflow YAML files — version 1.0",
+  "description": "Schema for Declarative Agent Workflow Engine (DAWE) workflow YAML files — versions 1.0 and 2.0",
   "type": "object",
   "required": ["version", "workflow_name", "description", "initial_node", "nodes"],
   "additionalProperties": false,
   "properties": {
     "version": {
       "type": "string",
-      "const": "1.0",
-      "description": "Schema version — currently only \"1.0\" is supported",
-      "examples": ["1.0"]
+      "enum": ["1.0", "2.0"],
+      "description": "Schema version",
+      "examples": ["1.0", "2.0"]
     },
     "workflow_name": {
       "type": "string",
@@ -111,6 +111,12 @@
       "enum": ["string", "number", "boolean"],
       "description": "Allowed field types for completion_schema"
     },
+    "MaxVisits": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Maximum number of times this node may be visited in a single workflow instance. Required on nodes targeted by back-edges in v2.0 workflows."
+    },
     "LlmDecisionNode": {
       "type": "object",
       "description": "An LLM decision node that routes based on the model response",
@@ -150,6 +156,9 @@
         },
         "retry": {
           "$ref": "#/$defs/RetryConfig"
+        },
+        "max_visits": {
+          "$ref": "#/$defs/MaxVisits"
         }
       }
     },
@@ -193,6 +202,9 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Payload keys to inject into the prompt context"
+        },
+        "max_visits": {
+          "$ref": "#/$defs/MaxVisits"
         }
       }
     },
@@ -237,6 +249,14 @@
         "working_dir": {
           "type": "string",
           "description": "Working directory for command execution"
+        },
+        "max_visits": {
+          "$ref": "#/$defs/MaxVisits"
+        },
+        "extract_json": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File path to structured JSON output. Engine parses this file and merges result into payload.extracted_json."
         }
       }
     },
@@ -252,8 +272,8 @@
         },
         "status": {
           "type": "string",
-          "enum": ["success", "failure", "cancelled"],
-          "description": "Terminal status of the workflow"
+          "enum": ["success", "failure", "cancelled", "suspended"],
+          "description": "Terminal status of the workflow. \"suspended\" indicates human review is needed (v2.0)."
         },
         "message": {
           "type": "string",

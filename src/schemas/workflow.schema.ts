@@ -51,6 +51,17 @@ const RetrySchema = z
 // Node type schemas (discriminated union on `type`)
 // ---------------------------------------------------------------------------
 
+/** Optional max_visits field for v2.0 bounded cycle support. */
+const MaxVisitsSchema = z
+  .number()
+  .int()
+  .min(1, 'max_visits must be at least 1')
+  .max(100, 'max_visits must be at most 100')
+  .optional()
+  .describe(
+    'Maximum number of times this node may be visited in a single workflow instance. Required on nodes targeted by back-edges in v2.0 workflows.',
+  );
+
 export const LlmDecisionNodeSchema = z
   .object({
     type: z.literal('llm_decision').describe('Node type: LLM-powered decision point'),
@@ -78,6 +89,7 @@ export const LlmDecisionNodeSchema = z
       .optional()
       .describe('Timeout in seconds (default 120)'),
     retry: RetrySchema.optional().describe('Optional retry configuration'),
+    max_visits: MaxVisitsSchema,
   })
   .strict()
   .describe('An LLM decision node that routes based on the model response');
@@ -104,6 +116,7 @@ export const LlmTaskNodeSchema = z
       .optional()
       .describe('Timeout in seconds (default 300)'),
     context_keys: z.array(z.string()).optional().describe('Payload keys to inject into the prompt context'),
+    max_visits: MaxVisitsSchema,
   })
   .strict()
   .describe('An LLM task node that performs work and returns structured output');
@@ -130,6 +143,14 @@ export const SystemActionNodeSchema = z
       .describe('Transitions evaluated after the command completes'),
     env: z.record(z.string(), z.string()).optional().describe('Additional environment variables'),
     working_dir: z.string().optional().describe('Working directory for command execution'),
+    max_visits: MaxVisitsSchema,
+    extract_json: z
+      .string()
+      .min(1, 'extract_json path must not be empty')
+      .optional()
+      .describe(
+        'File path to structured JSON output. Engine parses this file and merges result into payload.extracted_json.',
+      ),
   })
   .strict()
   .describe('A system action node that runs a shell or Node.js command');
@@ -137,7 +158,9 @@ export const SystemActionNodeSchema = z
 export const TerminalNodeSchema = z
   .object({
     type: z.literal('terminal').describe('Node type: terminal (end) state'),
-    status: z.enum(['success', 'failure', 'cancelled']).describe('Terminal status of the workflow'),
+    status: z
+      .enum(['success', 'failure', 'cancelled', 'suspended'])
+      .describe('Terminal status of the workflow. "suspended" indicates human review is needed (v2.0).'),
     message: z.string().optional().describe('Template-able summary message'),
   })
   .strict()
@@ -160,7 +183,7 @@ const WORKFLOW_NAME_REGEX = /^[a-z][a-z0-9-]*$/;
 
 const WorkflowStructuralSchema = z
   .object({
-    version: z.literal('1.0').describe('Schema version — currently only "1.0" is supported'),
+    version: z.enum(['1.0', '2.0']).describe('Schema version'),
     workflow_name: z
       .string()
       .min(3, 'workflow_name must be at least 3 characters')
@@ -185,7 +208,7 @@ const WorkflowStructuralSchema = z
     metadata: z.record(z.string(), z.unknown()).optional().describe('Optional arbitrary key-value metadata'),
   })
   .strict()
-  .describe('DAWE Workflow Definition v1.0');
+  .describe('DAWE Workflow Definition');
 
 // ---------------------------------------------------------------------------
 // Cross-field validation
@@ -280,3 +303,28 @@ export type LlmDecisionNode = z.infer<typeof LlmDecisionNodeSchema>;
 export type LlmTaskNode = z.infer<typeof LlmTaskNodeSchema>;
 export type SystemActionNode = z.infer<typeof SystemActionNodeSchema>;
 export type TerminalNode = z.infer<typeof TerminalNodeSchema>;
+
+// ---------------------------------------------------------------------------
+// Utility functions
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the schema version from a parsed workflow object.
+ *
+ * Returns `'1.0'` or `'2.0'` if the `version` field is a valid version string.
+ * Returns `undefined` if the version field is missing or not a valid version.
+ */
+export function getSchemaVersion(workflow: unknown): '1.0' | '2.0' | undefined {
+  if (
+    typeof workflow === 'object' &&
+    workflow !== null &&
+    'version' in workflow &&
+    typeof (workflow as Record<string, unknown>).version === 'string'
+  ) {
+    const v = (workflow as Record<string, unknown>).version;
+    if (v === '1.0' || v === '2.0') {
+      return v;
+    }
+  }
+  return undefined;
+}
