@@ -30,7 +30,7 @@ export type {
   ValidationError,
 } from './schemas/index.js';
 
-// Engine — DAG parser, graph types, validators, visualization
+// Engine — DAG parser, graph types, validators, visualization, expression evaluator
 export {
   // DAG Parser
   DAGParser,
@@ -51,6 +51,9 @@ export {
   toDot,
   toAdjacencyListJSON,
   formatValidationReport,
+  // Expression evaluator
+  ExpressionEvaluator,
+  ExpressionErrorCode,
   // Composite validation
   validateWorkflowFull,
 } from './engine/index.js';
@@ -65,6 +68,10 @@ export type {
   GraphValidationWarning,
   GraphStats,
   DAGParserOptions,
+  // Expression evaluator types
+  ExpressionContext,
+  ActionResult,
+  ExpressionError,
   // Composite validation types
   ValidatedWorkflow,
   CompositeValidationError,
