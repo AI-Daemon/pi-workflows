@@ -20,42 +20,42 @@ The DAWE architecture consists of three distinct layers:
 
 ## Node Types
 
-| Type | Description |
-|------|-------------|
-| `llm_decision` | Prompts the agent to extract specific JSON variables from user text |
-| `llm_task` | Hands control to the agent for open-ended work with strict completion criteria |
+| Type            | Description                                                                      |
+| --------------- | -------------------------------------------------------------------------------- |
+| `llm_decision`  | Prompts the agent to extract specific JSON variables from user text              |
+| `llm_task`      | Hands control to the agent for open-ended work with strict completion criteria   |
 | `system_action` | Executes purely in the engine (API calls, bash, Docker) without LLM intervention |
 
 ## Workflow Schema Example
 
 ```yaml
-version: "1.0"
-workflow_name: "issue-first-development"
-description: "Enforces GitHub issue creation before code implementation."
-initial_node: "assess_intent"
+version: '1.0'
+workflow_name: 'issue-first-development'
+description: 'Enforces GitHub issue creation before code implementation.'
+initial_node: 'assess_intent'
 
 nodes:
   assess_intent:
-    type: "llm_decision"
-    instruction: "Analyze the user request. Identify the target repository and whether file edits are required."
+    type: 'llm_decision'
+    instruction: 'Analyze the user request. Identify the target repository and whether file edits are required.'
     required_schema:
-      project_name: "string"
-      requires_edits: "boolean"
+      project_name: 'string'
+      requires_edits: 'boolean'
     transitions:
-      - condition: "payload.requires_edits == false"
-        target: "exit_informational"
-      - condition: "payload.requires_edits == true"
-        target: "system_check_issue"
+      - condition: 'payload.requires_edits == false'
+        target: 'exit_informational'
+      - condition: 'payload.requires_edits == true'
+        target: 'system_check_issue'
 
   system_check_issue:
-    type: "system_action"
-    runtime: "bash"
-    command: "./scripts/check-gh-issue.sh {{payload.project_name}}"
+    type: 'system_action'
+    runtime: 'bash'
+    command: './scripts/check-gh-issue.sh {{payload.project_name}}'
     transitions:
-      - condition: "action_result.exit_code == 0"
-        target: "llm_implement_code"
-      - condition: "action_result.exit_code != 0"
-        target: "system_create_issue"
+      - condition: 'action_result.exit_code == 0'
+        target: 'llm_implement_code'
+      - condition: 'action_result.exit_code != 0'
+        target: 'system_create_issue'
 ```
 
 ## State Management (Context Payload)
