@@ -1,0 +1,22 @@
+{
+  "project_name": "pi-workflows",
+  "version": "0.1.0",
+  "user": {
+    "name": "Alice",
+    "email": "alice@example.com",
+    "role": "admin"
+  },
+  "repo": {
+    "owner": "ai-daemon",
+    "name": "pi-workflows",
+    "branch": "main"
+  },
+  "settings": {
+    "timeout": 300,
+    "retries": 3,
+    "verbose": true
+  },
+  "tags": ["workflow", "engine", "pi"],
+  "steps_completed": 4,
+  "status": "running"
+}

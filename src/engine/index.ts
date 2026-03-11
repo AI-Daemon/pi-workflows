@@ -45,3 +45,14 @@ export type { ExpressionError } from './expression-errors.js';
 // Composite validation
 export { validateWorkflowFull } from './composite-validation.js';
 export type { ValidatedWorkflow, CompositeValidationError } from './composite-validation.js';
+
+// Payload Manager
+export { PayloadManager } from './payload-manager.js';
+export type { PayloadValidationError } from './payload-manager.js';
+
+// Payload History
+export type { PayloadHistoryEntry } from './payload-history.js';
+
+// Template Engine
+export { resolveTemplate } from './template-engine.js';
+export type { TemplateError } from './template-engine.js';
