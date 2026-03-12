@@ -118,6 +118,15 @@ export function formatAdvanceResponse(result: AdvanceResult, workflowName: strin
   );
   lines.push('```');
 
+  // UX Controls (when present)
+  if (result.ux_controls) {
+    lines.push('');
+    lines.push('### UX Controls');
+    lines.push(`- **Spinner:** ${result.ux_controls.base_spinner}`);
+    lines.push(`- **Hide Tools:** ${result.ux_controls.hide_tools}`);
+    lines.push(`- **Show Output:** ${result.ux_controls.show_output}`);
+  }
+
   // System action results
   if (result.systemActionResults && result.systemActionResults.length > 0) {
     lines.push('');

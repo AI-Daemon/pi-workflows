@@ -100,6 +100,11 @@ export function formatAgentMessage(
       lines.push(`> CONTEXT: ${JSON.stringify(result.contextPayload)}`);
     }
 
+    // UX spinner hint (informational — extension should use structured details path)
+    if (result.ux_controls) {
+      lines.push(`> UX_SPINNER: ${result.ux_controls.base_spinner}`);
+    }
+
     // Required action hint
     if (result.currentNodeType === 'llm_decision') {
       const schemaHint = result.requiredSchema ? JSON.stringify(result.requiredSchema) : '{}';
