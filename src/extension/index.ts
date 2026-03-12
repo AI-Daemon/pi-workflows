@@ -1,8 +1,12 @@
 /**
- * Pi Extension Entry Point — Registers the `advance_workflow` tool.
+ * Pi Extension Entry Point — Registers the `advance_workflow` tool and
+ * manages dynamic UX behavior (tool suppression, spinner concatenation).
  *
  * This is the boundary layer between the DAWE engine and the Pi agent.
  * The tool is the ONLY way the agent interacts with workflows.
+ *
+ * DAWE-005: Adds UX state caching, onToolCall hook, TUI muting, and
+ * dynamic spinner concatenation via the Pi ExtensionAPI lifecycle events.
  *
  * Pi Extension SDK: uses defineExtension pattern from @mariozechner/pi-coding-agent.
  */
@@ -15,12 +19,15 @@ import { WorkflowRuntime } from '../engine/workflow-runtime.js';
 import { WorkflowRegistry, PACKAGE_ROOT, BUNDLED_SCRIPTS_DIR } from './workflow-registry.js';
 import { AdvanceWorkflowHandler } from './advance-workflow-tool.js';
 import type { AdvanceWorkflowInput } from './advance-workflow-tool.js';
+import { UxStateManager } from './ux-state.js';
 
 // Re-export all extension modules
 export { WorkflowRegistry, PACKAGE_ROOT, BUNDLED_EXAMPLES_DIR, BUNDLED_SCRIPTS_DIR } from './workflow-registry.js';
 export type { WorkflowSummary } from './workflow-registry.js';
 export { AdvanceWorkflowHandler } from './advance-workflow-tool.js';
 export type { AdvanceWorkflowInput, AdvanceWorkflowOutput } from './advance-workflow-tool.js';
+export { UxStateManager } from './ux-state.js';
+export type { ActiveUxState } from './ux-state.js';
 export {
   formatListResponse,
   formatAdvanceResponse,
@@ -80,7 +87,8 @@ const AdvanceWorkflowParams = Type.Object({
 // ---------------------------------------------------------------------------
 
 /**
- * Pi extension entry point. Registers the advance_workflow tool.
+ * Pi extension entry point. Registers the advance_workflow tool and
+ * wires up lifecycle hooks for dynamic UX behavior.
  *
  * Configurable via ~/.pi/workflows/config.json:
  * {
@@ -102,6 +110,9 @@ export default function piWorkflowsExtension(pi: ExtensionAPI): void {
   const registry = new WorkflowRegistry();
   const handler = new AdvanceWorkflowHandler(runtime, registry);
 
+  // DAWE-005: UX state manager — caches ux_controls across agent turns
+  const uxState = new UxStateManager();
+
   // Load workflows on session start
   pi.on('session_start', async () => {
     try {
@@ -113,6 +124,60 @@ export default function piWorkflowsExtension(pi: ExtensionAPI): void {
     } catch {
       // Non-fatal — tool will report no workflows available
     }
+  });
+
+  // DAWE-005: Clear UX state on session shutdown
+  pi.on('session_shutdown', () => {
+    uxState.clear();
+  });
+
+  // -------------------------------------------------------------------------
+  // DAWE-005: tool_call hook — suppress native tool output when hide_tools
+  // -------------------------------------------------------------------------
+  pi.on('tool_call', (event) => {
+    if (!uxState.shouldSuppressTool(event.toolName)) return;
+
+    // Block is not needed — we use tool_result to suppress output.
+    // The tool_call hook is used only for early spinner update.
+    return undefined;
+  });
+
+  // -------------------------------------------------------------------------
+  // DAWE-005: tool_execution_start — update spinner with tool action phrase
+  // -------------------------------------------------------------------------
+  pi.on('tool_execution_start', (event, ctx) => {
+    if (!uxState.shouldSuppressTool(event.toolName)) return;
+
+    // Set dynamic spinner: "{base_spinner}... {ActionPhrase}..."
+    const spinnerText = uxState.getSpinnerWithTool(event.toolName);
+    ctx.ui.setWorkingMessage(spinnerText);
+  });
+
+  // -------------------------------------------------------------------------
+  // DAWE-005: tool_execution_end — revert spinner to base and suppress output
+  // -------------------------------------------------------------------------
+  pi.on('tool_execution_end', (event, ctx) => {
+    if (!uxState.shouldSuppressTool(event.toolName)) return;
+
+    // Revert spinner to base
+    const baseSpinner = uxState.getBaseSpinner();
+    ctx.ui.setWorkingMessage(baseSpinner);
+
+    // Record suppression for P2 debug logging
+    uxState.recordSuppression();
+  });
+
+  // -------------------------------------------------------------------------
+  // DAWE-005: tool_result hook — suppress JSON output for hidden tools
+  // -------------------------------------------------------------------------
+  pi.on('tool_result', (event) => {
+    if (!uxState.shouldSuppressTool(event.toolName)) return;
+
+    // Return empty content to suppress the tool result display in the TUI.
+    // The result is still sent to the LLM — only the TUI rendering is suppressed.
+    return {
+      content: [{ type: 'text' as const, text: '' }],
+    };
   });
 
   // Register the advance_workflow tool
@@ -130,7 +195,7 @@ export default function piWorkflowsExtension(pi: ExtensionAPI): void {
     ],
     parameters: AdvanceWorkflowParams,
 
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const input: AdvanceWorkflowInput = {
         action: params.action,
         workflow_name: params.workflow_name,
@@ -141,6 +206,23 @@ export default function piWorkflowsExtension(pi: ExtensionAPI): void {
       };
 
       const result = await handler.handle(input);
+
+      // DAWE-005: Cache or clear UX state based on the result
+      if (result.ux_controls) {
+        uxState.update(result.ux_controls);
+
+        // Set the initial spinner text
+        ctx.ui.setWorkingMessage(`${result.ux_controls.base_spinner}...`);
+      } else if (result.isError !== true) {
+        // No ux_controls and not an error — workflow may have completed.
+        // Clear state for terminal statuses. We detect this by checking
+        // if the result text contains terminal indicators.
+        // A cleaner approach: the handler already cleans up activeInstances
+        // on completion, so we clear UX state unconditionally when there
+        // are no ux_controls on a non-error response.
+        uxState.clear();
+        ctx.ui.setWorkingMessage(undefined);
+      }
 
       return {
         content: [{ type: 'text' as const, text: result.text }],
