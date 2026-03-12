@@ -61,7 +61,7 @@ nodes:
   system_check_issue:
     type: 'system_action'
     runtime: 'bash'
-    command: './scripts/check-gh-issue.sh {{payload.project_name}}'
+    command: 'bash "$DAWE_SCRIPTS_DIR/check-gh-issue.sh" {{payload.project_name}}'
     transitions:
       - condition: 'action_result.exit_code == 0'
         target: 'llm_implement_code'

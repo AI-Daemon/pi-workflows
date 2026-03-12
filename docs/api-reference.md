@@ -590,19 +590,20 @@ console.log(output.isError); // undefined (success)
 
 ### `WorkflowRegistry`
 
-Scans directories for YAML workflow definitions, validates, and caches.
+Scans directories for YAML workflow definitions, validates, and caches. Scans both top-level YAML files and YAML files inside subdirectories (e.g., `my-workflow/my-workflow.yml`). Subdirectories prefixed with `_` are skipped (e.g., `_scripts/`).
 
 **Constructor:** `new WorkflowRegistry(workflowDirs?: string[], options?: { logger?: DAWELogger })`
 
-Default scan paths: `./workflows/`, `~/.pi/workflows/`
+Default scan paths: `./workflows/examples/`, `~/.pi/workflows/`, `./workflows/`
 
-| Method          | Returns                           | Description                  |
-| --------------- | --------------------------------- | ---------------------------- |
-| `loadAll()`     | `Promise<void>`                   | Scan and cache all workflows |
-| `get(name)`     | `WorkflowDefinition \| undefined` | Get by name                  |
-| `list()`        | `WorkflowSummary[]`               | List all available           |
-| `reload(name)`  | `Promise<void>`                   | Reload a specific workflow   |
-| `getWarnings()` | `string[]`                        | Warnings from loading        |
+| Method                         | Returns                           | Description                                                             |
+| ------------------------------ | --------------------------------- | ----------------------------------------------------------------------- |
+| `loadAll()`                    | `Promise<void>`                   | Scan and cache all workflows                                            |
+| `get(name)`                    | `WorkflowDefinition \| undefined` | Get by name                                                             |
+| `list()`                       | `WorkflowSummary[]`               | List all available                                                      |
+| `reload(name)`                 | `Promise<void>`                   | Reload a specific workflow                                              |
+| `getWarnings()`                | `string[]`                        | Warnings from loading                                                   |
+| `getWorkflowScriptsDir(name)`  | `string \| undefined`             | Get the per-workflow `scripts/` directory path, if it exists            |
 
 ### Error Formatting
 
