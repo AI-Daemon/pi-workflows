@@ -117,6 +117,28 @@ nodes:
     message: 'Tests still failing after 3 attempts.'
 ```
 
+## Example Workflows
+
+pi-workflows ships with 6 example workflows covering different patterns:
+
+| Workflow                          | Pattern               | Description                                               |
+| --------------------------------- | --------------------- | --------------------------------------------------------- |
+| `simple-task`                     | Linear (v1.0)         | Minimal hello-world — verify installation                 |
+| `code-review`                     | Linear (v1.0)         | Automated PR code review                                  |
+| `pr-creation`                     | Linear (v1.0)         | Standalone pull request creation                          |
+| `issue-first-development`         | Bounded cycle (v2.0)  | Full dev lifecycle with test-fix cycles                   |
+| `create-workflow`                 | Conversational (v2.0) | Meta-workflow that creates new workflows through dialogue |
+| `business-requirements-generator` | Conversational (v2.0) | Agent acts as a PO to produce a BRD through discovery     |
+
+The conversational workflows (`create-workflow`, `business-requirements-generator`) demonstrate patterns for:
+
+- **Discovery loops** — Iterative Q&A where the agent reflects before asking the next question
+- **Self-review phases** — The agent challenges its own output before showing the user
+- **Self-improving post-mortems** — The agent retrospects on its own experience, then applies improvements directly to the workflow's own YAML
+- **Conversational checkpoints** — Soft "does this track?" gut-checks before formal deliverables
+
+These patterns are included in the **workflow template** (`resources/workflow-template.yml`) so new workflows inherit them by default.
+
 ## Documentation
 
 - [Installation Guide](./docs/installation.md) — Install, configure, and troubleshoot

@@ -81,14 +81,16 @@ Or call the tool directly:
 advance_workflow({ action: 'list' })
 ```
 
-**Expected result:** A list of 4 bundled workflows:
+**Expected result:** A list of 6 bundled workflows:
 
-| Workflow                  | Description                                             |
-| ------------------------- | ------------------------------------------------------- |
-| `simple-task`             | A minimal hello-world workflow for testing              |
-| `code-review`             | Automated PR code review workflow                       |
-| `issue-first-development` | Full development lifecycle with bounded test-fix cycles |
-| `pr-creation`             | Standalone pull request creation workflow               |
+| Workflow                          | Description                                                   |
+| --------------------------------- | ------------------------------------------------------------- |
+| `simple-task`                     | A minimal hello-world workflow for testing                    |
+| `code-review`                     | Automated PR code review workflow                             |
+| `issue-first-development`         | Full development lifecycle with bounded test-fix cycles       |
+| `pr-creation`                     | Standalone pull request creation workflow                     |
+| `create-workflow`                 | Meta-workflow that creates new workflows through conversation |
+| `business-requirements-generator` | Agent-as-PO workflow that produces BRDs through discovery     |
 
 ### Step 2: Start a Workflow
 
@@ -178,7 +180,7 @@ For the complete authoring reference, see the [Workflow Authoring Guide](./workf
 
 ## Bundled Example Workflows
 
-pi-workflows ships with 4 example workflows in `workflows/examples/`. These are automatically discovered and available after installation — you do not need to copy them anywhere.
+pi-workflows ships with 6 example workflows in `workflows/examples/`. These are automatically discovered and available after installation — you do not need to copy them anywhere.
 
 ### `simple-task` — Minimal Hello World
 
@@ -231,6 +233,22 @@ A focused workflow for creating pull requests after manual coding. Assumes code 
 6. System creates the PR via `gh`
 
 **Prerequisites:** `gh` CLI, `git`, an existing branch with commits.
+
+### `create-workflow` — Meta-Workflow for Creating Workflows
+
+A conversational v2.0 workflow that guides the agent through designing and building a new DAWE workflow. The agent acts as a workflow architect facilitating a collaborative design session through iterative discovery, self-review, and one-question-at-a-time design discussion. Includes a self-improving post-mortem where the agent applies improvements to its own YAML.
+
+Demonstrates: discovery loops with reflection, soft checkpoints, walkthrough self-review, conversational design discussion, self-improving post-mortems.
+
+**Prerequisites:** None. Includes per-workflow scripts and a workflow template.
+
+### `business-requirements-generator` — BRD Through Discovery
+
+A conversational v2.0 workflow where the agent acts as a senior Product Owner to draw out business requirements through iterative dialogue. Produces a comprehensive BRD with flexible structure, self-reviews it before showing the user, and saves to a local output directory. Includes the self-improving post-mortem pattern.
+
+Demonstrates: agent persona framing, open-ended discovery, self-review of generated content, conversational revision loops, local file output.
+
+**Prerequisites:** None.
 
 ---
 

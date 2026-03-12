@@ -1,0 +1,650 @@
+# business-requirements-generator.yml — Conversational BRD Generator
+#
+# A workflow where the agent acts as a senior Product Owner to facilitate
+# a discovery conversation with the user, drawing out business requirements
+# for a product or service. Produces a comprehensive Business Requirements
+# Document (BRD) through iterative dialogue, self-review, and user approval.
+#
+# Key design principles:
+# - Conversational, not mechanical — agent reflects, acknowledges, thinks out loud
+# - One question at a time — don't overwhelm the terminal-based user
+# - Agent-driven facilitation — follows threads, not a checklist
+# - Pre-architectural — purely business-level, no technical implementation
+# - Self-review before user sees the draft — catches gaps proactively
+# - Iterative — loops back to conversation whenever needed
+
+version: '2.0'
+workflow_name: business-requirements-generator
+description: >
+  Conversational business requirements generator. Agent acts as a Product Owner
+  to facilitate discovery, then produces a comprehensive BRD through iterative
+  dialogue, self-review, and user approval.
+initial_node: kickoff
+metadata:
+  category: documentation
+  tags:
+    - business-requirements
+    - discovery
+    - conversational
+
+nodes:
+  # --------------------------------------------------------------------------
+  # Phase 1: Kickoff — set the tone and open the conversation
+  # --------------------------------------------------------------------------
+
+  kickoff:
+    type: llm_task
+    instruction: >
+      You are a senior Product Owner starting a business requirements
+      discovery session. Introduce yourself warmly but professionally.
+
+      Set the tone: this is a collaborative conversation, not a form to
+      fill out. You will be asking questions one at a time to understand
+      what the user is building.
+
+      Ask ONE broad opening question — something like "Tell me about
+      what you're building" or "What's the product or service you have
+      in mind?" Keep it light and inviting.
+
+      Do NOT ask multiple questions. Do NOT list categories you'll cover.
+      Just open the conversation naturally.
+    completion_schema:
+      product_summary: string
+      status: string
+    transitions:
+      - condition: 'true'
+        target: discover
+
+  # --------------------------------------------------------------------------
+  # Phase 2: Discovery — the heart of the workflow
+  # --------------------------------------------------------------------------
+
+  # Iterative conversation loop. Agent asks one question at a time,
+  # starts broad, gets progressively focused. Follows whatever threads
+  # emerge — not limited to any predefined categories.
+  discover:
+    type: llm_decision
+    max_visits: 30
+    instruction: >
+      You are a senior Product Owner conducting a business requirements
+      discovery session.
+
+      {{#if payload.discovery_notes}}
+      CONVERSATION SO FAR:
+      {{payload.discovery_notes}}
+
+      The user's latest response: {{payload.last_answer}}
+      Your last question was: {{payload.last_question}}
+
+      {{#if payload.review_gaps}}
+      IMPORTANT: The self-review phase found gaps that need user
+      clarification:
+      {{payload.review_gaps}}
+
+      You MUST address these gaps in your next questions before moving
+      on. Weave them naturally into the conversation — don't dump them
+      all at once.
+      {{/if}}
+
+      Integrate their answer into your understanding. Reflect on what
+      you've learned — what picture is forming? What's still fuzzy?
+
+      Then decide: do you have a thorough enough understanding to move
+      toward drafting? Consider:
+      - Do you understand the core problem being solved?
+      - Do you know who the stakeholders and users are?
+      - Are the success criteria clear?
+      - Have you explored enough dimensions (scope, constraints, risks,
+        dependencies, priorities, edge cases, etc.)?
+
+      If you feel confident, say so naturally — tell the user you think
+      you have a solid picture and ask if they're ready to move forward.
+      Set ready_to_advance to true.
+
+      If the user says something like "let's go", "that's it", "move on",
+      "I'm good" — set ready_to_advance to true.
+
+      Otherwise, ask ONE focused follow-up question (two max if closely
+      related). Follow whatever thread is most productive. You are not
+      limited to any predefined categories — explore whatever emerges.
+      {{else}}
+      The user initially described their product/service as:
+      {{payload.product_summary}}
+
+      Start building your understanding. Ask ONE thoughtful follow-up
+      question based on what they've told you so far. Start broad, get
+      focused over time. Set ready_to_advance to false.
+      {{/if}}
+
+      CRITICAL: Be conversational. Reflect on what you heard before
+      asking your next question. Acknowledge insights. Share observations.
+      Think out loud. You are a PO having a real dialogue, not a bot
+      collecting answers.
+    required_schema:
+      last_question: string
+      last_answer: string
+      discovery_notes: string
+      ready_to_advance: boolean
+    transitions:
+      - condition: 'payload.ready_to_advance == true'
+        target: summarize_understanding
+        priority: 0
+      - condition: '$metadata.visits.discover >= 30'
+        target: budget_exhausted
+        priority: 1
+      - condition: 'true'
+        target: discover
+        priority: 2
+
+  # --------------------------------------------------------------------------
+  # Phase 3: Checkpoint — confirm understanding before drafting
+  # --------------------------------------------------------------------------
+
+  summarize_understanding:
+    type: llm_decision
+    max_visits: 5
+    instruction: >
+      You've been having a thorough conversation about the user's
+      product/service. Now summarize everything you've learned back
+      to the user in plain, conversational language.
+
+      Discovery notes:
+      {{payload.discovery_notes}}
+
+      {{#if payload.summary_feedback}}
+      The user had feedback on your previous summary:
+      {{payload.summary_feedback}}
+
+      Revise your summary to address their concerns.
+      {{/if}}
+
+      Present your understanding organized naturally — not as a rigid
+      template but as a coherent narrative. Cover the key dimensions
+      you explored: what the product is, who it's for, what problems
+      it solves, constraints, success criteria, and anything else
+      significant.
+
+      Then ask: "Does this capture it? Anything I'm missing or got wrong?"
+
+      If the user confirms, set confirmed to true.
+      If the user has additions or corrections, capture them in
+      summary_feedback and set confirmed to false.
+    required_schema:
+      understanding_summary: string
+      confirmed: boolean
+      summary_feedback: string
+    transitions:
+      - condition: 'payload.confirmed == true'
+        target: draft_brd
+        priority: 0
+      - condition: '$metadata.visits.summarize_understanding >= 5'
+        target: budget_exhausted
+        priority: 1
+      # User has more to add — go back to conversation
+      - condition: 'true'
+        target: discover
+        priority: 2
+
+  # --------------------------------------------------------------------------
+  # Phase 4: Drafting — synthesize into a BRD
+  # --------------------------------------------------------------------------
+
+  draft_brd:
+    type: llm_task
+    max_visits: 5
+    instruction: >
+      You are a senior Product Owner. Using everything you've learned
+      from the discovery conversation, synthesize a comprehensive
+      Business Requirements Document.
+
+      Discovery notes:
+      {{payload.discovery_notes}}
+
+      Understanding summary:
+      {{payload.understanding_summary}}
+
+      {{#if payload.review_feedback}}
+      REVISION GUIDANCE: The self-review found these issues to address:
+      {{payload.review_feedback}}
+
+      Revise the BRD to address them.
+      {{/if}}
+
+      {{#if payload.user_revision_notes}}
+      USER REVISION: The user requested these changes:
+      {{payload.user_revision_notes}}
+
+      Revise the BRD accordingly.
+      {{/if}}
+
+      STRUCTURE: Do NOT use a rigid template. Organize the document
+      based on what you actually learned. Sections should emerge from
+      the content, not be forced. However, every BRD should naturally
+      cover: purpose/vision, stakeholders, core requirements,
+      constraints, success criteria, and any other dimensions that
+      emerged.
+
+      FORMAT: Write in clear markdown. Use headers, bullet points, and
+      tables where appropriate. This is a professional document that
+      other workflows and team members will reference.
+
+      FILENAME: Generate a descriptive filename following the pattern:
+      brd-{slugified-product-name}-{YYYY-MM-DD}.md
+      For example: brd-mobile-banking-app-2026-03-12.md
+    completion_schema:
+      brd_content: string
+      brd_filename: string
+      status: string
+    context_keys:
+      - discovery_notes
+      - understanding_summary
+      - review_feedback
+      - user_revision_notes
+    transitions:
+      - condition: 'true'
+        target: review_draft
+
+  # --------------------------------------------------------------------------
+  # Phase 5: Self-Review — challenge the draft before user sees it
+  # --------------------------------------------------------------------------
+
+  # Agent plays devil's advocate on its own work. Looks for gaps,
+  # risks, and concerns the user hasn't thought of. Routes internal
+  # fixes silently back to draft_brd, user-facing questions to discover.
+  review_draft:
+    type: llm_decision
+    max_visits: 3
+    instruction: >
+      You are a critical reviewer — a different hat from the PO who
+      wrote this BRD. Your job is to challenge the draft and look for
+      problems the user hasn't thought of.
+
+      BRD content:
+      {{payload.brd_content}}
+
+      Discovery notes:
+      {{payload.discovery_notes}}
+
+      {{#if payload.previous_review_gaps}}
+      Previous review found these gaps (some may have been addressed):
+      {{payload.previous_review_gaps}}
+      {{/if}}
+
+      Analyze the BRD critically. Look for:
+      - Missing requirements that are implied but not stated
+      - Vague language that could be interpreted multiple ways
+      - Scope gaps — things that would come up during implementation
+      - Unrealistic expectations or conflicting requirements
+      - Missing stakeholders or user personas
+      - Risks or constraints not accounted for
+      - Dependencies that aren't called out
+      - Anything that would cause difficulty downstream
+
+      For each gap found, classify it:
+      - INTERNAL: Can be fixed by revising the BRD without user input
+        (e.g., vague wording, missing implied requirements). Put these
+        in review_feedback.
+      - USER_NEEDED: Changes the user's intent or requires their input
+        (e.g., scope question, conflicting requirements, missing
+        business decision). Put these in review_gaps.
+
+      If you find no meaningful gaps, set gaps_found to false. Don't
+      invent problems — if the BRD is solid, say so.
+    required_schema:
+      gaps_found: boolean
+      review_feedback: string
+      review_gaps: string
+      needs_user_input: boolean
+      previous_review_gaps: string
+    transitions:
+      # No gaps — draft is solid, show to user
+      - condition: 'payload.gaps_found == false'
+        target: present_draft
+        priority: 0
+      # Gaps need user input — go back to conversation
+      - condition: 'payload.gaps_found == true && payload.needs_user_input == true'
+        target: discover
+        priority: 1
+      # Internal gaps only — fix silently
+      - condition: 'payload.gaps_found == true && payload.needs_user_input == false'
+        target: draft_brd
+        priority: 2
+      # Budget exhausted — show best version to user
+      - condition: '$metadata.visits.review_draft >= 3'
+        target: present_draft
+        priority: 3
+      # Catch-all fallback
+      - condition: 'true'
+        target: present_draft
+        priority: 99
+
+  # --------------------------------------------------------------------------
+  # Phase 6: User Review — present, discuss, iterate
+  # --------------------------------------------------------------------------
+
+  present_draft:
+    type: llm_decision
+    max_visits: 8
+    instruction: >
+      You are the PO again. Present the BRD to the user for their review.
+
+      BRD content:
+      {{payload.brd_content}}
+
+      BRD filename:
+      {{payload.brd_filename}}
+
+      {{#if payload.revision_feedback}}
+      You previously presented this and the user had feedback:
+      {{payload.revision_feedback}}
+
+      Discuss what changed based on their feedback.
+      {{/if}}
+
+      Show the user the complete BRD. Then have a conversation about
+      it — don't just say "approve or reject." Ask what resonates,
+      what feels off, what's missing.
+
+      Based on the user's response:
+      - If they approve (looks good, ship it, approved, etc.), set
+        approved to true.
+      - If they want minor tweaks (wording, restructuring, small
+        additions), capture in revision_feedback and set change_scope
+        to "minor".
+      - If they want fundamental changes (rethink scope, missing entire
+        dimensions, wrong direction), set change_scope to "major".
+    required_schema:
+      approved: boolean
+      revision_feedback: string
+      change_scope: string
+      user_revision_notes: string
+    transitions:
+      # User approves — save the BRD
+      - condition: 'payload.approved == true'
+        target: save_brd
+        priority: 0
+      # Major changes — back to deep conversation
+      - condition: "payload.change_scope == 'major'"
+        target: discover
+        priority: 1
+      # Minor changes — quick revision
+      - condition: "payload.change_scope == 'minor'"
+        target: revise_brd
+        priority: 2
+      # Budget exhausted
+      - condition: '$metadata.visits.present_draft >= 8'
+        target: budget_exhausted
+        priority: 3
+      # Catch-all — treat as minor revision
+      - condition: 'true'
+        target: revise_brd
+        priority: 99
+
+  # Conversational revision — discuss changes, then update the BRD.
+  revise_brd:
+    type: llm_task
+    instruction: >
+      The user wants changes to the BRD. This is a conversation, not
+      a silent edit.
+
+      Current BRD:
+      {{payload.brd_content}}
+
+      User's feedback:
+      {{payload.revision_feedback}}
+
+      User's revision notes:
+      {{payload.user_revision_notes}}
+
+      Discuss what you understand about the changes they want.
+      Acknowledge their feedback. Then revise the BRD accordingly.
+      Explain what you changed and why.
+    completion_schema:
+      brd_content: string
+      status: string
+    context_keys:
+      - brd_content
+      - revision_feedback
+      - user_revision_notes
+      - brd_filename
+    transitions:
+      - condition: 'true'
+        target: present_draft
+
+  # --------------------------------------------------------------------------
+  # Phase 7: Save — write the approved BRD to disk
+  # --------------------------------------------------------------------------
+
+  save_brd:
+    type: llm_task
+    instruction: >
+      The user has approved the BRD. Save it now.
+
+      Write the BRD to:
+      workflows_outputs/business-requirements-generator/{{payload.brd_filename}}
+
+      Steps:
+      1. Create the directory: workflows_outputs/business-requirements-generator/
+      2. Write the file with the approved content
+      3. Confirm to the user: the file path, the filename, and that
+         it's ready for reference by other workflows.
+
+      BRD content:
+      {{payload.brd_content}}
+
+      Filename:
+      {{payload.brd_filename}}
+    completion_schema:
+      file_path: string
+      save_success: boolean
+      status: string
+    context_keys:
+      - brd_content
+      - brd_filename
+    transitions:
+      - condition: 'payload.save_success == true'
+        target: survey_ask
+        priority: 0
+      # Save failed
+      - condition: 'true'
+        target: save_failed
+        priority: 1
+
+  # --------------------------------------------------------------------------
+  # Phase 8: Post-Mortem Survey — the workflow reviews itself
+  # --------------------------------------------------------------------------
+
+  # Humorous one-liner asking if the user has time for a brief survey.
+  survey_ask:
+    type: llm_decision
+    instruction: >
+      You just finished creating a BRD — congrats! You've already
+      saved the file and confirmed the path to the user.
+
+      Now, after a line break, drop a humorous one-liner asking if
+      they have a moment for a "brief survey about their experience."
+      Think playful and self-aware — like an airline survey but you
+      know it's silly. One line only, keep it light.
+
+      If the user says yes (or plays along), set survey_accepted
+      to true. If they decline, say something gracious and set
+      survey_accepted to false.
+    required_schema:
+      survey_accepted: boolean
+    transitions:
+      - condition: 'payload.survey_accepted == true'
+        target: self_analysis
+        priority: 0
+      - condition: 'true'
+        target: done
+        priority: 1
+
+  # Agent reflects on its own experience running through the workflow.
+  self_analysis:
+    type: llm_decision
+    max_visits: 10
+    instruction: >
+      You just went through the entire BRD generation process. Now
+      do a retrospective — reflect on YOUR experience as the agent.
+
+      Context from this session:
+      - Discovery notes: {{payload.discovery_notes}}
+      - BRD filename: {{payload.brd_filename}}
+
+      {{#if payload.retro_notes}}
+      Retro so far:
+      {{payload.retro_notes}}
+
+      User's latest response: {{payload.retro_last_answer}}
+      {{/if}}
+
+      Think like a PO doing a sprint retro. Identify ONE thing at
+      a time:
+      - What felt smooth and worked well?
+      - Where was the flow awkward or mechanical?
+      - Where did you get stuck or the user had to correct course?
+      - What specific improvements would you suggest?
+
+      Share ONE observation. Discuss the user's reaction. Set
+      retro_complete to true when you've covered the key points
+      or the user signals they're done.
+
+      One observation at a time — this is a conversation, not a
+      report dump.
+    required_schema:
+      retro_notes: string
+      retro_last_answer: string
+      retro_complete: boolean
+    transitions:
+      - condition: 'payload.retro_complete == true'
+        target: apply_improvements
+        priority: 0
+      - condition: '$metadata.visits.self_analysis >= 10'
+        target: apply_improvements
+        priority: 1
+      - condition: 'true'
+        target: self_analysis
+        priority: 2
+
+  # Apply retro findings directly to this workflow's own YAML.
+  apply_improvements:
+    type: llm_task
+    instruction: >
+      You've completed a retrospective on the BRD generation process.
+      Now apply those improvements directly to this workflow's own
+      YAML file.
+
+      Retro findings:
+      {{payload.retro_notes}}
+
+      The workflow YAML is at:
+      ~/.pi/workflows/business-requirements-generator/business-requirements-generator.yml
+
+      Steps:
+      1. Read the current workflow YAML
+      2. Identify which retro findings translate into concrete YAML
+         changes (instruction wording, transition logic, new nodes,
+         adjusted max_visits, better persona framing, etc.)
+      3. Make targeted edits — do NOT rewrite the entire file
+      4. Skip findings that are too vague to act on
+      5. Tell the user what you changed and why
+
+      Be surgical. Only change what the retro evidence supports.
+      If no findings translate to concrete changes, say so and skip.
+    completion_schema:
+      changes_applied: string
+      changes_made: boolean
+      status: string
+    context_keys:
+      - retro_notes
+    transitions:
+      - condition: 'payload.changes_made == true'
+        target: validate_self
+        priority: 0
+      - condition: 'true'
+        target: done
+        priority: 1
+
+  # Validate the self-improved workflow still passes.
+  validate_self:
+    type: system_action
+    runtime: bash
+    command: 'node "$DAWE_SCRIPTS_DIR/validate-workflow.mjs" ~/.pi/workflows/business-requirements-generator/business-requirements-generator.yml /tmp/dawe/validate-self.json'
+    timeout_seconds: 15
+    extract_json: '/tmp/dawe/validate-self.json'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: self_improve_done
+        priority: 0
+      - condition: 'true'
+        target: revert_improvements
+        priority: 1
+
+  # Validation passed — confirm to user.
+  self_improve_done:
+    type: llm_task
+    instruction: >
+      The self-improvements passed validation.
+
+      Validation result:
+      {{json payload.extracted_json}}
+
+      Changes applied:
+      {{payload.changes_applied}}
+
+      Let the user know the workflow has improved itself and they
+      should run /reload to pick up the changes. Keep it brief.
+    completion_schema:
+      status: string
+    context_keys:
+      - extracted_json
+      - changes_applied
+    transitions:
+      - condition: 'true'
+        target: done
+
+  # Validation failed — revert changes.
+  revert_improvements:
+    type: llm_task
+    instruction: >
+      The self-improvements failed validation.
+
+      Validation errors:
+      {{json payload.extracted_json}}
+
+      Revert by restoring the YAML to its previous state. Use git
+      checkout if available, otherwise undo the specific edits.
+
+      Tell the user it didn't work this time — the workflow has been
+      reverted. The retro conversation was still valuable.
+    completion_schema:
+      status: string
+    context_keys:
+      - extracted_json
+      - changes_applied
+    transitions:
+      - condition: 'true'
+        target: done
+
+  # --------------------------------------------------------------------------
+  # Terminals
+  # --------------------------------------------------------------------------
+
+  done:
+    type: terminal
+    status: success
+    message: >
+      BRD saved to workflows_outputs/business-requirements-generator/{{payload.brd_filename}}
+
+  save_failed:
+    type: terminal
+    status: failure
+    message: >
+      Failed to save BRD file {{payload.brd_filename}}.
+
+  budget_exhausted:
+    type: terminal
+    status: suspended
+    message: >
+      A conversation loop exhausted its budget. The workflow needs
+      human intervention to continue.

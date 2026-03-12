@@ -1,0 +1,195 @@
+# {workflow-name}.yml — Scaffold for new DAWE workflows
+#
+# This template includes the standard phases every workflow should have.
+# Fill in node instructions, schemas, and transitions to build your workflow.
+# The post-mortem survey phase at the end is included by default — it lets
+# the agent reflect on its own experience and suggest improvements.
+
+version: '2.0'
+workflow_name: create-workflow
+description: Scaffold for authoring new DAWE workflows.
+initial_node: gather_requirements
+
+nodes:
+  # --------------------------------------------------------------------------
+  # Core Workflow — replace these with your actual nodes
+  # --------------------------------------------------------------------------
+
+  gather_requirements:
+    type: llm_decision
+    instruction: 'TODO: Describe what information to gather from the user.'
+    required_schema:
+      description: string
+    transitions:
+      - condition: 'true'
+        target: execute_task
+
+  execute_task:
+    type: llm_task
+    instruction: 'TODO: Describe the main work to perform.'
+    completion_schema:
+      status: string
+    context_keys:
+      - description
+    transitions:
+      - condition: 'true'
+        target: survey_ask
+
+  # --------------------------------------------------------------------------
+  # Post-Mortem Survey — standard phase for all workflows
+  #
+  # After the workflow completes its main work, the agent humorously
+  # asks if the user has time for a brief survey. If accepted, it
+  # reflects on its own experience, discusses findings one at a time,
+  # and saves a retro document for future improvements.
+  # --------------------------------------------------------------------------
+
+  survey_ask:
+    type: llm_decision
+    instruction: >
+      The main workflow is complete. After a line break, drop a
+      humorous one-liner asking if the user has a moment for a
+      "brief survey about their experience." Keep it playful and
+      self-aware. One line only.
+
+      If the user says yes, set survey_accepted to true.
+      If they decline, say something gracious and set survey_accepted
+      to false.
+    required_schema:
+      survey_accepted: boolean
+    transitions:
+      - condition: 'payload.survey_accepted == true'
+        target: self_analysis
+        priority: 0
+      - condition: 'true'
+        target: done
+        priority: 1
+
+  self_analysis:
+    type: llm_decision
+    max_visits: 10
+    instruction: >
+      Reflect on YOUR experience running this workflow. Think like a
+      PO doing a sprint retro on the process itself.
+
+      {{#if payload.retro_notes}}
+      Retro so far:
+      {{payload.retro_notes}}
+
+      User's latest response: {{payload.retro_last_answer}}
+      {{/if}}
+
+      Identify ONE thing at a time:
+      - What felt smooth and worked well?
+      - Where was the flow awkward or mechanical?
+      - Where did you get stuck or the user had to correct course?
+      - What specific improvements would you suggest?
+
+      Share ONE observation. Discuss the user's reaction. Set
+      retro_complete to true when key points are covered or the
+      user signals they're done.
+
+      This is a conversation, not a report dump.
+    required_schema:
+      retro_notes: string
+      retro_last_answer: string
+      retro_complete: boolean
+    transitions:
+      - condition: 'payload.retro_complete == true'
+        target: apply_improvements
+        priority: 0
+      - condition: '$metadata.visits.self_analysis >= 10'
+        target: apply_improvements
+        priority: 1
+      - condition: 'true'
+        target: self_analysis
+        priority: 2
+
+  apply_improvements:
+    type: llm_task
+    instruction: >
+      Apply the retrospective findings directly to this workflow's
+      own YAML file to make it better for next time.
+
+      Retro findings:
+      {{payload.retro_notes}}
+
+      TODO: Set the path to this workflow's YAML file.
+
+      Steps:
+      1. Read the current workflow YAML
+      2. Identify which findings translate into concrete YAML changes
+      3. Make targeted edits — do NOT rewrite the entire file
+      4. Skip findings that are too vague to act on
+      5. Tell the user what you changed and why
+
+      If no findings translate to concrete changes, say so and skip.
+    completion_schema:
+      changes_applied: string
+      changes_made: boolean
+      status: string
+    context_keys:
+      - retro_notes
+    transitions:
+      - condition: 'payload.changes_made == true'
+        target: validate_self
+        priority: 0
+      - condition: 'true'
+        target: done
+        priority: 1
+
+  validate_self:
+    type: system_action
+    runtime: bash
+    command: 'node "$DAWE_SCRIPTS_DIR/validate-workflow.mjs" TODO_WORKFLOW_YAML_PATH /tmp/dawe/validate-self.json'
+    timeout_seconds: 15
+    extract_json: '/tmp/dawe/validate-self.json'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: self_improve_done
+        priority: 0
+      - condition: 'true'
+        target: revert_improvements
+        priority: 1
+
+  self_improve_done:
+    type: llm_task
+    instruction: >
+      The self-improvements passed validation. Let the user know
+      the workflow has improved itself and they should run /reload.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  revert_improvements:
+    type: llm_task
+    instruction: >
+      The self-improvements failed validation. Revert the changes
+      and tell the user. The retro was still valuable.
+
+      Validation errors:
+      {{json payload.extracted_json}}
+    completion_schema:
+      status: string
+    context_keys:
+      - extracted_json
+    transitions:
+      - condition: 'true'
+        target: done
+
+  # --------------------------------------------------------------------------
+  # Terminals
+  # --------------------------------------------------------------------------
+
+  done:
+    type: terminal
+    status: success
+    message: 'Workflow completed successfully.'
+
+  # Uncomment when adding bounded cycles (v2.0):
+  # budget_exhausted:
+  #   type: terminal
+  #   status: suspended
+  #   message: 'A step exhausted its retry budget. Human review needed.'

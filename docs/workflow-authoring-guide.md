@@ -614,14 +614,26 @@ workflows/
   _scripts/                    # Global scripts (DAWE_SCRIPTS_DIR)
     check-gh-issue.sh
     create-pr.sh
+    validate-workflow.mjs
     lib/common.sh
   my-workflow/
     my-workflow.yml            # Workflow definition
     scripts/                   # Per-workflow scripts (DAWE_WORKFLOW_SCRIPTS_DIR)
       my-helper.sh
-    resources/                 # Per-workflow resources
+    resources/                 # Per-workflow resources (templates, etc.)
   examples/
     code-review.yml
+    simple-task.yml
+    pr-creation.yml
+    issue-first-development.yml
+    create-workflow/           # Multi-file workflow example
+      create-workflow.yml
+      scripts/
+        init-workflow.sh
+      resources/
+        workflow-template.yml
+    business-requirements-generator/
+      business-requirements-generator.yml
 ```
 
 - **`_scripts/`** — Global shared scripts available to all workflows via `$DAWE_SCRIPTS_DIR`. The underscore prefix signals this is an infrastructure directory, not a workflow.
@@ -718,16 +730,31 @@ exit $EXIT_CODE
 
 ## Best Practices
 
+### General
+
 1. **Always include failure terminals** — Every workflow should handle error paths with `status: failure` terminals.
 2. **Always include a `suspended` terminal for workflows with cycles** — This is the safety net when budget is exhausted or stall detection fires.
-3. **Keep instructions under 500 words** — Concise instructions reduce LLM confusion. Template in only the data the agent needs.
+3. **Keep instructions under 500 words** — Concise instructions reduce LLM confusion. Template in only the data the agent needs. Note: `llm_decision` has a 2000-character instruction limit; `llm_task` allows 5000. If an instruction is too long, split the node into two (e.g., a first-visit node and a return-visit loop node).
 4. **Use `context_keys` to limit LLM context** — Don't flood the agent with the entire payload. Scope to relevant keys.
 5. **Name nodes descriptively (verb_noun pattern)** — `assess_intent`, `run_tests`, `create_pr` — not `step1`, `node_a`.
 6. **Comment your YAML** — Use `#` comments to explain non-obvious transitions, business logic, and cycle patterns.
-7. **Set `max_visits` conservatively** — Start with 3. Most issues resolve in 1-2 iterations. Going above 5 is rarely beneficial and wastes LLM tokens.
+7. **Set `max_visits` conservatively** — Start with 3. Most issues resolve in 1-2 iterations. Going above 5 is rarely beneficial and wastes LLM tokens. Exception: conversational discovery loops may warrant 20-30 visits.
 8. **Always include a catch-all transition** — Use `condition: 'true'` with high priority as the last transition to avoid `R-001` errors.
 9. **Test workflows with unit tests** — Load your YAML in a test, validate it, and assert the graph structure.
 10. **Resolve project directories early** — If your workflow has system_action nodes that need project context (git, npm, test runners), add an early node to resolve the project directory and store it in `payload.project_dir`. Use `cd {{payload.project_dir}} &&` to prefix project-dependent commands, since `working_dir` does not support templates.
+11. **Include a post-mortem survey with self-improvement** — After the main workflow completes, offer an optional self-analysis where the agent reflects on its own experience, then applies improvements directly to the workflow's own YAML file. The agent validates its changes and reverts if validation fails. This pattern is included in the workflow template (`resources/workflow-template.yml`). See `create-workflow` and `business-requirements-generator` for examples.
+
+### Conversational Workflows
+
+For workflows that involve iterative dialogue with the user (discovery sessions, requirements gathering, design discussions):
+
+12. **Set an agent persona** — Tell the agent _who_ it is in the first node (e.g., "You are a senior Product Owner" or "You are a workflow architect"). This framing shapes better questions and more natural conversation.
+13. **One question at a time** — Don't dump multiple questions or a wall of text. Terminal-based UX means users see one screen at a time. Ask one focused question (two max if closely related).
+14. **Reflect before asking** — Instruct the agent to acknowledge what it heard, share an observation, and think out loud _before_ asking the next question. Without this, the agent defaults to ask-and-submit behavior.
+15. **Add soft checkpoints** — Before formal deliverables (documents, plans), add an informal "here's what I'm hearing, does this track?" node. This builds trust and catches misunderstandings early.
+16. **Self-review before showing the user** — Have the agent challenge its own output in a separate node before presenting it. Classify gaps as internal (fix silently) or user-facing (go back to discussion). See `review_draft` in `business-requirements-generator` and `review_walkthrough` in `create-workflow`.
+17. **Split first-visit from return-visit** — If a discovery loop needs different behavior on first entry vs return visits, split into two nodes (e.g., `discover_first` + `discover`). This avoids bloating a single instruction with `{{#if}}` conditionals and keeps each node under the character limit.
+18. **Let both sides end early** — In discovery loops, allow both the agent and user to signal readiness to move on. The agent should express confidence naturally ("I think I have a solid picture — ready to move forward?"), not just mechanically check a criteria list.
 
 ---
 
