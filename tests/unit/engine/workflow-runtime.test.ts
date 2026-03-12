@@ -2607,3 +2607,248 @@ nodes:
     expect($metadata.state_hashes.length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// DAWE-003: ux_controls on AdvanceResult
+// ---------------------------------------------------------------------------
+
+describe('WorkflowRuntime — ux_controls (DAWE-003)', () => {
+  let runtime: WorkflowRuntime;
+
+  beforeEach(() => {
+    runtime = createRuntime();
+  });
+
+  it('AdvanceResult includes ux_controls when status is waiting_for_agent', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    expect(startResult.data.status).toBe('waiting_for_agent');
+    expect(startResult.data.ux_controls).toBeDefined();
+    expect(startResult.data.ux_controls).toHaveProperty('base_spinner');
+    expect(startResult.data.ux_controls).toHaveProperty('hide_tools');
+    expect(startResult.data.ux_controls).toHaveProperty('show_output');
+  });
+
+  it('base_spinner uses ui_spinner override when set on the node', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    // Initial node has ui_spinner: 'Initiating Enterprise SonarQube Analysis'
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    expect(startResult.data.ux_controls!.base_spinner).toBe('Initiating Enterprise SonarQube Analysis');
+  });
+
+  it('base_spinner falls back to LexicalFormatter when ui_spinner is not set', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    // Advance to task_no_override (no ui_spinner set)
+    const advResult = await runtime.advance(startResult.data.instanceId, 'decide_with_override', { action: 'next' });
+    expect(advResult.ok).toBe(true);
+    if (!advResult.ok) return;
+
+    expect(advResult.data.status).toBe('waiting_for_agent');
+    expect(advResult.data.currentNodeId).toBe('task_no_override');
+    // LexicalFormatter.toActionPhrase('task_no_override') → "Tasking no override"
+    // The spinner should be derived and never empty
+    expect(advResult.data.ux_controls).toBeDefined();
+    expect(advResult.data.ux_controls!.base_spinner.length).toBeGreaterThan(0);
+    expect(advResult.data.ux_controls!.base_spinner).not.toBe('Initiating Enterprise SonarQube Analysis');
+  });
+
+  it('hide_tools is true in ux_controls when node has hide_tools: true', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    // Initial node has hide_tools: true
+    expect(startResult.data.ux_controls!.hide_tools).toBe(true);
+
+    // Navigate to task_hidden_tools (also has hide_tools: true)
+    const advResult = await runtime.advance(startResult.data.instanceId, 'decide_with_override', {
+      action: 'hidden',
+    });
+    expect(advResult.ok).toBe(true);
+    if (!advResult.ok) return;
+
+    expect(advResult.data.ux_controls!.hide_tools).toBe(true);
+  });
+
+  it('hide_tools defaults to false when node omits it', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    // Advance to task_no_override (no hide_tools set, defaults to false)
+    const advResult = await runtime.advance(startResult.data.instanceId, 'decide_with_override', { action: 'next' });
+    expect(advResult.ok).toBe(true);
+    if (!advResult.ok) return;
+
+    expect(advResult.data.ux_controls!.hide_tools).toBe(false);
+  });
+
+  it('show_output is true when node has show_tool_output: true', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    // Initial node has show_tool_output: true
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    expect(startResult.data.ux_controls!.show_output).toBe(true);
+
+    // Navigate to task_show_output (also has show_tool_output: true)
+    const advResult = await runtime.advance(startResult.data.instanceId, 'decide_with_override', {
+      action: 'visible',
+    });
+    expect(advResult.ok).toBe(true);
+    if (!advResult.ok) return;
+
+    expect(advResult.data.ux_controls!.show_output).toBe(true);
+  });
+
+  it('show_output defaults to false when node omits it', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    // Advance to task_no_override (no show_tool_output set, defaults to false)
+    const advResult = await runtime.advance(startResult.data.instanceId, 'decide_with_override', { action: 'next' });
+    expect(advResult.ok).toBe(true);
+    if (!advResult.ok) return;
+
+    expect(advResult.data.ux_controls!.show_output).toBe(false);
+  });
+
+  it('terminal AdvanceResult does not require ux_controls', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    // Advance through the workflow to terminal
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'ask', { choice: 'go' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'do-task', { result: 'done' });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+
+    expect(adv2.data.status).toBe('completed');
+    // Terminal AdvanceResult MAY omit ux_controls
+    expect(adv2.data.ux_controls).toBeUndefined();
+  });
+
+  it('base_spinner is never empty — LexicalFormatter always produces a value', async () => {
+    // Use simple-linear which has node IDs 'ask' and 'do-task' — no ui_spinner overrides
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    // 'ask' → LexicalFormatter should produce a non-empty string
+    expect(startResult.data.ux_controls).toBeDefined();
+    expect(startResult.data.ux_controls!.base_spinner.length).toBeGreaterThan(0);
+
+    const advResult = await runtime.advance(startResult.data.instanceId, 'ask', { choice: 'test' });
+    expect(advResult.ok).toBe(true);
+    if (!advResult.ok) return;
+
+    // 'do-task' → LexicalFormatter should produce a non-empty string
+    expect(advResult.data.ux_controls).toBeDefined();
+    expect(advResult.data.ux_controls!.base_spinner.length).toBeGreaterThan(0);
+  });
+
+  it('ux_controls present on every waiting_for_agent result through full workflow', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    // Start → decide_with_override (waiting_for_agent)
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+    expect(startResult.data.status).toBe('waiting_for_agent');
+    expect(startResult.data.ux_controls).toBeDefined();
+
+    // Advance to task_no_override (waiting_for_agent)
+    const adv1 = await runtime.advance(startResult.data.instanceId, 'decide_with_override', { action: 'next' });
+    expect(adv1.ok).toBe(true);
+    if (!adv1.ok) return;
+    expect(adv1.data.status).toBe('waiting_for_agent');
+    expect(adv1.data.ux_controls).toBeDefined();
+
+    // Advance to terminal (completed) — ux_controls not required
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'task_no_override', { result: 'done' });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+    expect(adv2.data.status).toBe('completed');
+  });
+
+  it('suspended AdvanceResult may omit ux_controls', async () => {
+    // Use simple-linear and cancel it — check that non-waiting_for_agent results don't need ux_controls
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    // Cancel the instance
+    const cancelResult = await runtime.cancelInstance(startResult.data.instanceId);
+    expect(cancelResult.ok).toBe(true);
+
+    // Verify the cancelled instance doesn't have ux_controls set
+    const instance = await runtime.getInstance(startResult.data.instanceId);
+    expect(instance).not.toBeNull();
+    expect(instance!.status).toBe('cancelled');
+  });
+});

@@ -79,6 +79,7 @@ export type { RuntimeOptions, RuntimeEvents } from './workflow-runtime.js';
 export type {
   WorkflowInstance,
   AdvanceResult,
+  UxControls,
   InstanceStatus,
   InstanceHistoryEntry,
   SystemActionChainEntry,

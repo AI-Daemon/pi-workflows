@@ -30,7 +30,7 @@ import type { Result } from '../utils/result.js';
 import type { ValidationError } from '../schemas/errors.js';
 import type { ExpressionContext, ActionResult, WorkflowMetadata } from './expression-context.js';
 import type { ExecutorActionResult, ExecutorOptions } from './action-result.js';
-import type { WorkflowInstance, AdvanceResult, SystemActionChainEntry } from './advance-result.js';
+import type { WorkflowInstance, AdvanceResult, SystemActionChainEntry, UxControls } from './advance-result.js';
 import type { InstanceStore } from './instance-store.js';
 import type { RuntimeError } from './runtime-errors.js';
 
@@ -47,6 +47,7 @@ import { StallDetector } from './stall-detector.js';
 import type { CycleTransitionInfo, StallDetectionInfo } from './agent-message-formatter.js';
 import type { StallDetectorOptions } from './stall-detector.js';
 import { DAWELogger } from '../utils/logger.js';
+import { LexicalFormatter } from './utils/LexicalFormatter.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1058,12 +1059,30 @@ export class WorkflowRuntime extends EventEmitter {
 
     const resolvedInstruction = templateResult.ok ? templateResult.data : node.instruction;
 
+    // Resolve UX controls — convention-over-configuration fallback
+    const spinnerOverride = node.ui_spinner;
+    const resolvedSpinner = spinnerOverride ?? LexicalFormatter.toActionPhrase(instance.currentNodeId);
+    const spinnerSource = spinnerOverride ? 'override' : 'derived';
+    this.logger.debug('Resolved spinner text', {
+      instanceId: instance.instanceId,
+      nodeId: instance.currentNodeId,
+      source: spinnerSource,
+      base_spinner: resolvedSpinner,
+    });
+
+    const uxControls: UxControls = {
+      base_spinner: resolvedSpinner,
+      hide_tools: node.hide_tools ?? false,
+      show_output: node.show_tool_output ?? false,
+    };
+
     const partialResult: Omit<AdvanceResult, 'agentMessage'> = {
       instanceId: instance.instanceId,
       status: 'waiting_for_agent',
       currentNodeId: instance.currentNodeId,
       currentNodeType: node.type,
       instruction: resolvedInstruction,
+      ux_controls: uxControls,
     };
 
     if (node.type === 'llm_decision') {
