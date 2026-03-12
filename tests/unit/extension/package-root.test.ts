@@ -36,7 +36,7 @@ describe('PACKAGE_ROOT resolution', () => {
   });
 
   // 3. BUNDLED_SCRIPTS_DIR points to a valid directory with executable scripts
-  it('should have workflows/scripts/ with bundled scripts', () => {
+  it('should have workflows/_scripts/ with bundled scripts', () => {
     expect(existsSync(BUNDLED_SCRIPTS_DIR)).toBe(true);
 
     const files = readdirSync(BUNDLED_SCRIPTS_DIR).filter((f) => f.endsWith('.sh'));
@@ -50,6 +50,6 @@ describe('PACKAGE_ROOT resolution', () => {
 
   // 5. BUNDLED_SCRIPTS_DIR is derived from PACKAGE_ROOT
   it('should derive BUNDLED_SCRIPTS_DIR from PACKAGE_ROOT', () => {
-    expect(BUNDLED_SCRIPTS_DIR).toBe(join(PACKAGE_ROOT, 'workflows', 'scripts'));
+    expect(BUNDLED_SCRIPTS_DIR).toBe(join(PACKAGE_ROOT, 'workflows', '_scripts'));
   });
 });

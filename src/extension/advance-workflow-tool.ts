@@ -149,6 +149,9 @@ export class AdvanceWorkflowHandler {
 
     const workflowId = loadResult.data;
 
+    // Inject per-workflow scripts directory into process.env (if it exists)
+    this.injectWorkflowScriptsDir(input.workflow_name);
+
     // Start the instance
     const startResult = await this.runtime.startInstance(workflowId, input.node_payload ?? {});
     if (!startResult.ok) {
@@ -184,6 +187,11 @@ export class AdvanceWorkflowHandler {
       };
     }
 
+    const workflowName = this.activeInstances.get(input.instance_id!) ?? 'unknown';
+
+    // Inject per-workflow scripts directory into process.env (if it exists)
+    this.injectWorkflowScriptsDir(workflowName);
+
     const advanceResult = await this.runtime.advance(input.instance_id!, input.current_node_id!, input.node_payload!);
 
     if (!advanceResult.ok) {
@@ -194,7 +202,6 @@ export class AdvanceWorkflowHandler {
     }
 
     const result = advanceResult.data;
-    const workflowName = this.activeInstances.get(input.instance_id!) ?? 'unknown';
 
     // Clean up completed instances from tracking
     if (result.status === 'completed' || result.status === 'failed') {
@@ -307,5 +314,20 @@ export class AdvanceWorkflowHandler {
    */
   private buildMinimalYaml(definition: WorkflowDefinition): string {
     return yamlStringify(definition);
+  }
+
+  /**
+   * Inject DAWE_WORKFLOW_SCRIPTS_DIR into process.env for the given workflow.
+   *
+   * If the workflow has a per-workflow `scripts/` directory, set the env var.
+   * Otherwise, remove it to prevent stale values from a previous workflow.
+   */
+  private injectWorkflowScriptsDir(workflowName: string): void {
+    const scriptsDir = this.registry.getWorkflowScriptsDir(workflowName);
+    if (scriptsDir) {
+      process.env['DAWE_WORKFLOW_SCRIPTS_DIR'] = scriptsDir;
+    } else {
+      delete process.env['DAWE_WORKFLOW_SCRIPTS_DIR'];
+    }
   }
 }

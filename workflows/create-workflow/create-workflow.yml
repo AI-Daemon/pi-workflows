@@ -1,0 +1,209 @@
+# create-workflow.yml — Workflow that creates new DAWE workflows
+#
+# Guides an agent through authoring a new workflow YAML file.
+
+version: '2.0'
+workflow_name: create-workflow
+description: Guides an agent through creating a new DAWE workflow.
+initial_node: acknowledge
+
+nodes:
+  # --------------------------------------------------------------------------
+  # Phase 1: Acknowledgement & Name
+  # --------------------------------------------------------------------------
+
+  # Quick acknowledgement. If the user already described what they want,
+  # analyze it and propose a name. If not, ask for a brief summary first.
+  acknowledge:
+    type: llm_decision
+    instruction: >
+      You are starting the create-workflow workflow.
+
+      Give a brief acknowledgement that you are ready to create a new workflow.
+
+      Check the conversation context: has the user already described what they
+      want the workflow to do?
+
+      - If YES: set has_summary to true and capture their description in summary.
+      - If NO: set has_summary to false, ask the user for a quick summary of
+        what the workflow should do, and set summary to empty string.
+    required_schema:
+      has_summary: boolean
+      summary: string
+    transitions:
+      - condition: 'payload.has_summary == true'
+        target: propose_name
+        priority: 0
+      - condition: 'true'
+        target: get_summary
+        priority: 1
+
+  # User hasn't described the workflow yet — ask for a summary.
+  get_summary:
+    type: llm_decision
+    instruction: >
+      The user has not yet described what they want the workflow to do.
+      Ask them for a brief summary and capture their response.
+    required_schema:
+      summary: string
+    transitions:
+      - condition: 'true'
+        target: propose_name
+
+  # Analyze the summary and propose a kebab-case workflow name.
+  propose_name:
+    type: llm_decision
+    max_visits: 5
+    instruction: >
+      Based on the user's summary: "{{payload.summary}}"
+
+      {{#if payload.name_feedback}}
+      The user did not like the previous name "{{payload.proposed_name}}".
+      Their feedback: "{{payload.name_feedback}}"
+      Use this feedback to propose a better name.
+      {{else}}
+      Analyze the intent and propose a kebab-case workflow name
+      (e.g. "deploy-staging", "code-review", "test-fix-cycle").
+      {{/if}}
+
+      The name must be 3-64 characters, start with a letter, and use
+      only lowercase letters, numbers, and hyphens.
+
+      Present the proposed name to the user and ask if they like it.
+      Capture their acceptance and any feedback if they want changes.
+    required_schema:
+      proposed_name: string
+      name_accepted: boolean
+      name_feedback: string
+    transitions:
+      - condition: 'payload.name_accepted == true'
+        target: confirm_name
+        priority: 0
+      - condition: 'true'
+        target: propose_name
+        priority: 1
+
+  # Acknowledge the chosen name and tell the user to hang tight.
+  confirm_name:
+    type: llm_task
+    instruction: >
+      The user has accepted the workflow name "{{payload.proposed_name}}".
+
+      Acknowledge the name choice and inform the user to hang tight
+      while you initialize the workflow.
+    completion_schema:
+      status: string
+    context_keys:
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: init_workflow
+
+  # Run the init script to create the directory and copy the scaffold.
+  init_workflow:
+    type: system_action
+    runtime: bash
+    command: 'bash "$DAWE_SCRIPTS_DIR/init-workflow.sh" {{payload.proposed_name}}'
+    timeout_seconds: 15
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: discover
+        priority: 0
+      - condition: 'true'
+        target: init_failed
+        priority: 1
+
+  init_failed:
+    type: terminal
+    status: failure
+    message: 'Failed to initialize workflow directory for "{{payload.proposed_name}}".'
+
+  # --------------------------------------------------------------------------
+  # Phase 2: Discovery — understand the workflow through Q&A
+  # --------------------------------------------------------------------------
+
+  # Kick off the discovery conversation. Analyze the summary, ask a broad
+  # first question, and build understanding one question at a time.
+  discover:
+    type: llm_decision
+    max_visits: 20
+    instruction: >
+      {{#if payload.discovery_notes}}
+      You are continuing a discovery conversation about the workflow
+      "{{payload.proposed_name}}".
+
+      What you know so far:
+      {{payload.discovery_notes}}
+
+      Previous Q&A:
+      {{payload.last_question}} → {{payload.last_answer}}
+
+      Integrate the user's latest answer into your notes. Then decide:
+      do you have a deep enough understanding of the workflow to start
+      designing it? Consider whether you know:
+      - The main phases/steps of the workflow
+      - What inputs are needed and from whom (user vs system)
+      - What decisions or branches exist
+      - Whether any steps repeat (cycles)
+      - What the success/failure outcomes look like
+
+      If you need more clarity, ask ONE focused follow-up question.
+      If you have enough understanding, set discovery_complete to true.
+      {{else}}
+      The workflow "{{payload.proposed_name}}" has been initialized.
+      Let the user know you are back and ready to learn more about
+      what they need.
+
+      Summary so far: "{{payload.summary}}"
+
+      Analyze this summary and ask the user ONE broad opening question
+      to deepen your understanding of the workflow. Keep it conversational.
+      Set discovery_complete to false.
+      {{/if}}
+    required_schema:
+      last_question: string
+      last_answer: string
+      discovery_notes: string
+      discovery_complete: boolean
+    transitions:
+      - condition: 'payload.discovery_complete == true'
+        target: design_nodes
+        priority: 0
+      - condition: 'true'
+        target: discover
+        priority: 1
+
+  # --------------------------------------------------------------------------
+  # Remaining phases — TODO
+  # --------------------------------------------------------------------------
+
+  design_nodes:
+    type: llm_task
+    instruction: 'TODO'
+    completion_schema:
+      status: string
+    context_keys:
+      - summary
+      - proposed_name
+      - discovery_notes
+    transitions:
+      - condition: 'true'
+        target: generate_yaml
+
+  generate_yaml:
+    type: llm_task
+    instruction: 'TODO'
+    completion_schema:
+      status: string
+    context_keys:
+      - summary
+      - proposed_name
+      - discovery_notes
+    transitions:
+      - condition: 'true'
+        target: done
+
+  done:
+    type: terminal
+    status: success
+    message: 'Workflow "{{payload.proposed_name}}" created.'
