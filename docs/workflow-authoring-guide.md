@@ -637,6 +637,18 @@ command: 'bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/test.json'
 command: 'bash "$DAWE_WORKFLOW_SCRIPTS_DIR/my-helper.sh" {{payload.arg}}'
 ```
 
+### Sourcing Shared Libraries from Per-Workflow Scripts
+
+Global scripts in `_scripts/` source `lib/common.sh` via `$SCRIPT_DIR/lib/common.sh` — this works because they live inside `_scripts/`. Per-workflow scripts live in a different directory, so they must source shared libraries via `$DAWE_SCRIPTS_DIR` instead:
+
+```bash
+# ✅ Per-workflow script — source common.sh from the global scripts dir
+source "$DAWE_SCRIPTS_DIR/lib/common.sh"
+
+# ❌ This breaks in per-workflow scripts — lib/ is not a sibling
+source "$SCRIPT_DIR/lib/common.sh"
+```
+
 ### Script Conventions
 
 System action commands should follow these conventions:
