@@ -121,14 +121,14 @@ nodes:
 
 pi-workflows ships with 6 example workflows covering different patterns:
 
-| Workflow                           | Pattern                | Description                                                     |
-| ---------------------------------- | ---------------------- | --------------------------------------------------------------- |
-| `simple-task`                      | Linear (v1.0)          | Minimal hello-world — verify installation                       |
-| `code-review`                      | Linear (v1.0)          | Automated PR code review                                        |
-| `pr-creation`                      | Linear (v1.0)          | Standalone pull request creation                                |
-| `issue-first-development`          | Bounded cycle (v2.0)   | Full dev lifecycle with test-fix cycles                         |
-| `create-workflow`                  | Conversational (v2.0)  | Meta-workflow that creates new workflows through dialogue        |
-| `business-requirements-generator`  | Conversational (v2.0)  | Agent acts as a PO to produce a BRD through discovery            |
+| Workflow                          | Pattern               | Description                                               |
+| --------------------------------- | --------------------- | --------------------------------------------------------- |
+| `simple-task`                     | Linear (v1.0)         | Minimal hello-world — verify installation                 |
+| `code-review`                     | Linear (v1.0)         | Automated PR code review                                  |
+| `pr-creation`                     | Linear (v1.0)         | Standalone pull request creation                          |
+| `issue-first-development`         | Bounded cycle (v2.0)  | Full dev lifecycle with test-fix cycles                   |
+| `create-workflow`                 | Conversational (v2.0) | Meta-workflow that creates new workflows through dialogue |
+| `business-requirements-generator` | Conversational (v2.0) | Agent acts as a PO to produce a BRD through discovery     |
 
 The conversational workflows (`create-workflow`, `business-requirements-generator`) demonstrate patterns for:
 

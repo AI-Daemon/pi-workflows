@@ -83,14 +83,14 @@ advance_workflow({ action: 'list' })
 
 **Expected result:** A list of 6 bundled workflows:
 
-| Workflow                          | Description                                                    |
-| --------------------------------- | -------------------------------------------------------------- |
-| `simple-task`                     | A minimal hello-world workflow for testing                     |
-| `code-review`                     | Automated PR code review workflow                              |
-| `issue-first-development`         | Full development lifecycle with bounded test-fix cycles        |
-| `pr-creation`                     | Standalone pull request creation workflow                      |
-| `create-workflow`                 | Meta-workflow that creates new workflows through conversation   |
-| `business-requirements-generator` | Agent-as-PO workflow that produces BRDs through discovery       |
+| Workflow                          | Description                                                   |
+| --------------------------------- | ------------------------------------------------------------- |
+| `simple-task`                     | A minimal hello-world workflow for testing                    |
+| `code-review`                     | Automated PR code review workflow                             |
+| `issue-first-development`         | Full development lifecycle with bounded test-fix cycles       |
+| `pr-creation`                     | Standalone pull request creation workflow                     |
+| `create-workflow`                 | Meta-workflow that creates new workflows through conversation |
+| `business-requirements-generator` | Agent-as-PO workflow that produces BRDs through discovery     |
 
 ### Step 2: Start a Workflow
 

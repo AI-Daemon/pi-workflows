@@ -59,7 +59,7 @@ if (result.ok) {
 } else {
   const report = {
     valid: false,
-    errors: result.errors.map(e => ({
+    errors: result.errors.map((e) => ({
       path: e.path || '',
       message: e.message,
       code: e.code || '',

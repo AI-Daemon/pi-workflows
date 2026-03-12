@@ -20,7 +20,6 @@ description: >
   to facilitate discovery, then produces a comprehensive BRD through iterative
   dialogue, self-review, and user approval.
 initial_node: kickoff
-
 metadata:
   category: documentation
   tags:

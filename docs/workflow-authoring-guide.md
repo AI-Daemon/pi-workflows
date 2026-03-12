@@ -748,9 +748,9 @@ exit $EXIT_CODE
 
 For workflows that involve iterative dialogue with the user (discovery sessions, requirements gathering, design discussions):
 
-12. **Set an agent persona** — Tell the agent *who* it is in the first node (e.g., "You are a senior Product Owner" or "You are a workflow architect"). This framing shapes better questions and more natural conversation.
+12. **Set an agent persona** — Tell the agent _who_ it is in the first node (e.g., "You are a senior Product Owner" or "You are a workflow architect"). This framing shapes better questions and more natural conversation.
 13. **One question at a time** — Don't dump multiple questions or a wall of text. Terminal-based UX means users see one screen at a time. Ask one focused question (two max if closely related).
-14. **Reflect before asking** — Instruct the agent to acknowledge what it heard, share an observation, and think out loud *before* asking the next question. Without this, the agent defaults to ask-and-submit behavior.
+14. **Reflect before asking** — Instruct the agent to acknowledge what it heard, share an observation, and think out loud _before_ asking the next question. Without this, the agent defaults to ask-and-submit behavior.
 15. **Add soft checkpoints** — Before formal deliverables (documents, plans), add an informal "here's what I'm hearing, does this track?" node. This builds trust and catches misunderstandings early.
 16. **Self-review before showing the user** — Have the agent challenge its own output in a separate node before presenting it. Classify gaps as internal (fix silently) or user-facing (go back to discussion). See `review_draft` in `business-requirements-generator` and `review_walkthrough` in `create-workflow`.
 17. **Split first-visit from return-visit** — If a discovery loop needs different behavior on first entry vs return visits, split into two nodes (e.g., `discover_first` + `discover`). This avoids bloating a single instruction with `{{#if}}` conditionals and keeps each node under the character limit.
