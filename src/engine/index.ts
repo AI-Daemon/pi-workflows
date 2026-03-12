@@ -103,3 +103,6 @@ export type { CycleTransitionInfo, StallDetectionInfo } from './agent-message-fo
 // Stall Detector
 export { StallDetector } from './stall-detector.js';
 export type { StallDetectorOptions, StallCheckResult } from './stall-detector.js';
+
+// Lexical Formatter
+export { LexicalFormatter, IRREGULAR_VERBS } from './utils/LexicalFormatter.js';
