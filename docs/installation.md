@@ -236,15 +236,15 @@ A focused workflow for creating pull requests after manual coding. Assumes code 
 
 ### `create-workflow` — Meta-Workflow for Creating Workflows
 
-A conversational v2.0 workflow that guides the agent through designing and building a new DAWE workflow. The agent acts as a workflow architect facilitating a collaborative design session through iterative discovery, self-review, and one-question-at-a-time design discussion. Includes a post-mortem survey where the agent retrospects on its own experience.
+A conversational v2.0 workflow that guides the agent through designing and building a new DAWE workflow. The agent acts as a workflow architect facilitating a collaborative design session through iterative discovery, self-review, and one-question-at-a-time design discussion. Includes a self-improving post-mortem where the agent applies improvements to its own YAML.
 
-Demonstrates: discovery loops with reflection, soft checkpoints, walkthrough self-review, conversational design discussion, post-mortem retros.
+Demonstrates: discovery loops with reflection, soft checkpoints, walkthrough self-review, conversational design discussion, self-improving post-mortems.
 
 **Prerequisites:** None. Includes per-workflow scripts and a workflow template.
 
 ### `business-requirements-generator` — BRD Through Discovery
 
-A conversational v2.0 workflow where the agent acts as a senior Product Owner to draw out business requirements through iterative dialogue. Produces a comprehensive BRD with flexible structure, self-reviews it before showing the user, and saves to a local output directory. Includes the post-mortem survey pattern.
+A conversational v2.0 workflow where the agent acts as a senior Product Owner to draw out business requirements through iterative dialogue. Produces a comprehensive BRD with flexible structure, self-reviews it before showing the user, and saves to a local output directory. Includes the self-improving post-mortem pattern.
 
 Demonstrates: agent persona framing, open-ended discovery, self-review of generated content, conversational revision loops, local file output.
 

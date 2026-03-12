@@ -134,7 +134,7 @@ The conversational workflows (`create-workflow`, `business-requirements-generato
 
 - **Discovery loops** — Iterative Q&A where the agent reflects before asking the next question
 - **Self-review phases** — The agent challenges its own output before showing the user
-- **Post-mortem surveys** — The agent retrospects on its own experience after completing work
+- **Self-improving post-mortems** — The agent retrospects on its own experience, then applies improvements directly to the workflow's own YAML
 - **Conversational checkpoints** — Soft "does this track?" gut-checks before formal deliverables
 
 These patterns are included in the **workflow template** (`resources/workflow-template.yml`) so new workflows inherit them by default.

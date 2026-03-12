@@ -96,35 +96,85 @@ nodes:
       retro_complete: boolean
     transitions:
       - condition: 'payload.retro_complete == true'
-        target: save_retro
+        target: apply_improvements
         priority: 0
       - condition: '$metadata.visits.self_analysis >= 10'
-        target: save_retro
+        target: apply_improvements
         priority: 1
       - condition: 'true'
         target: self_analysis
         priority: 2
 
-  save_retro:
+  apply_improvements:
     type: llm_task
     instruction: >
-      Save the retrospective findings from this session.
+      Apply the retrospective findings directly to this workflow's
+      own YAML file to make it better for next time.
 
-      Retro notes:
+      Retro findings:
       {{payload.retro_notes}}
 
-      Write a concise retro document to:
-      workflows_outputs/{workflow-name}/retro-{YYYY-MM-DD}.md
+      TODO: Set the path to this workflow's YAML file.
 
-      Format as readable markdown: date, what worked, what needs
-      improvement, specific suggestions. Keep it concise.
+      Steps:
+      1. Read the current workflow YAML
+      2. Identify which findings translate into concrete YAML changes
+      3. Make targeted edits — do NOT rewrite the entire file
+      4. Skip findings that are too vague to act on
+      5. Tell the user what you changed and why
 
-      After saving, thank the user for their time.
+      If no findings translate to concrete changes, say so and skip.
     completion_schema:
-      retro_path: string
+      changes_applied: string
+      changes_made: boolean
       status: string
     context_keys:
       - retro_notes
+    transitions:
+      - condition: 'payload.changes_made == true'
+        target: validate_self
+        priority: 0
+      - condition: 'true'
+        target: done
+        priority: 1
+
+  validate_self:
+    type: system_action
+    runtime: bash
+    command: 'node "$DAWE_SCRIPTS_DIR/validate-workflow.mjs" TODO_WORKFLOW_YAML_PATH /tmp/dawe/validate-self.json'
+    timeout_seconds: 15
+    extract_json: '/tmp/dawe/validate-self.json'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: self_improve_done
+        priority: 0
+      - condition: 'true'
+        target: revert_improvements
+        priority: 1
+
+  self_improve_done:
+    type: llm_task
+    instruction: >
+      The self-improvements passed validation. Let the user know
+      the workflow has improved itself and they should run /reload.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  revert_improvements:
+    type: llm_task
+    instruction: >
+      The self-improvements failed validation. Revert the changes
+      and tell the user. The retro was still valuable.
+
+      Validation errors:
+      {{json payload.extracted_json}}
+    completion_schema:
+      status: string
+    context_keys:
+      - extracted_json
     transitions:
       - condition: 'true'
         target: done
@@ -138,7 +188,8 @@ nodes:
     status: success
     message: 'Workflow completed successfully.'
 
-  budget_exhausted:
-    type: terminal
-    status: suspended
-    message: 'A step exhausted its retry budget. Human review needed.'
+  # Uncomment when adding bounded cycles (v2.0):
+  # budget_exhausted:
+  #   type: terminal
+  #   status: suspended
+  #   message: 'A step exhausted its retry budget. Human review needed.'

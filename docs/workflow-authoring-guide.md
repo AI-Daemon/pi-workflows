@@ -742,7 +742,7 @@ exit $EXIT_CODE
 8. **Always include a catch-all transition** — Use `condition: 'true'` with high priority as the last transition to avoid `R-001` errors.
 9. **Test workflows with unit tests** — Load your YAML in a test, validate it, and assert the graph structure.
 10. **Resolve project directories early** — If your workflow has system_action nodes that need project context (git, npm, test runners), add an early node to resolve the project directory and store it in `payload.project_dir`. Use `cd {{payload.project_dir}} &&` to prefix project-dependent commands, since `working_dir` does not support templates.
-11. **Include a post-mortem survey** — After the main workflow completes, offer an optional self-analysis where the agent reflects on its own experience and saves a retro document. This pattern is included in the workflow template (`resources/workflow-template.yml`). See `create-workflow` and `business-requirements-generator` for examples.
+11. **Include a post-mortem survey with self-improvement** — After the main workflow completes, offer an optional self-analysis where the agent reflects on its own experience, then applies improvements directly to the workflow's own YAML file. The agent validates its changes and reverts if validation fails. This pattern is included in the workflow template (`resources/workflow-template.yml`). See `create-workflow` and `business-requirements-generator` for examples.
 
 ### Conversational Workflows
 

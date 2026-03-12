@@ -518,39 +518,111 @@ nodes:
       retro_complete: boolean
     transitions:
       - condition: 'payload.retro_complete == true'
-        target: save_retro
+        target: apply_improvements
         priority: 0
       - condition: '$metadata.visits.self_analysis >= 10'
-        target: save_retro
+        target: apply_improvements
         priority: 1
       - condition: 'true'
         target: self_analysis
         priority: 2
 
-  # Save the retro findings for future reference.
-  save_retro:
+  # Apply retro findings directly to this workflow's own YAML.
+  apply_improvements:
     type: llm_task
     instruction: >
-      Save the retrospective findings from this session.
+      You've completed a retrospective on the BRD generation process.
+      Now apply those improvements directly to this workflow's own
+      YAML file.
 
-      Retro notes:
+      Retro findings:
       {{payload.retro_notes}}
 
-      BRD created: {{payload.brd_filename}}
+      The workflow YAML is at:
+      ~/.pi/workflows/business-requirements-generator/business-requirements-generator.yml
 
-      Write a concise retro document to:
-      workflows_outputs/business-requirements-generator/retro-{{payload.brd_filename}}
+      Steps:
+      1. Read the current workflow YAML
+      2. Identify which retro findings translate into concrete YAML
+         changes (instruction wording, transition logic, new nodes,
+         adjusted max_visits, better persona framing, etc.)
+      3. Make targeted edits — do NOT rewrite the entire file
+      4. Skip findings that are too vague to act on
+      5. Tell the user what you changed and why
 
-      Format as readable markdown: date, what worked, what needs
-      improvement, specific suggestions. Keep it concise.
-
-      After saving, thank the user for their time.
+      Be surgical. Only change what the retro evidence supports.
+      If no findings translate to concrete changes, say so and skip.
     completion_schema:
-      retro_path: string
+      changes_applied: string
+      changes_made: boolean
       status: string
     context_keys:
       - retro_notes
-      - brd_filename
+    transitions:
+      - condition: 'payload.changes_made == true'
+        target: validate_self
+        priority: 0
+      - condition: 'true'
+        target: done
+        priority: 1
+
+  # Validate the self-improved workflow still passes.
+  validate_self:
+    type: system_action
+    runtime: bash
+    command: 'node "$DAWE_SCRIPTS_DIR/validate-workflow.mjs" ~/.pi/workflows/business-requirements-generator/business-requirements-generator.yml /tmp/dawe/validate-self.json'
+    timeout_seconds: 15
+    extract_json: '/tmp/dawe/validate-self.json'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: self_improve_done
+        priority: 0
+      - condition: 'true'
+        target: revert_improvements
+        priority: 1
+
+  # Validation passed — confirm to user.
+  self_improve_done:
+    type: llm_task
+    instruction: >
+      The self-improvements passed validation.
+
+      Validation result:
+      {{json payload.extracted_json}}
+
+      Changes applied:
+      {{payload.changes_applied}}
+
+      Let the user know the workflow has improved itself and they
+      should run /reload to pick up the changes. Keep it brief.
+    completion_schema:
+      status: string
+    context_keys:
+      - extracted_json
+      - changes_applied
+    transitions:
+      - condition: 'true'
+        target: done
+
+  # Validation failed — revert changes.
+  revert_improvements:
+    type: llm_task
+    instruction: >
+      The self-improvements failed validation.
+
+      Validation errors:
+      {{json payload.extracted_json}}
+
+      Revert by restoring the YAML to its previous state. Use git
+      checkout if available, otherwise undo the specific edits.
+
+      Tell the user it didn't work this time — the workflow has been
+      reverted. The retro conversation was still valuable.
+    completion_schema:
+      status: string
+    context_keys:
+      - extracted_json
+      - changes_applied
     transitions:
       - condition: 'true'
         target: done
