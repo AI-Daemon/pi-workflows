@@ -286,12 +286,12 @@ Workflows are loaded into memory at session start. Changes to YAML files are not
 
 The DAWE engine respects the following environment variables:
 
-| Variable            | Description                                                          | Default  |
-| ------------------- | -------------------------------------------------------------------- | -------- |
-| `DAWE_LOG_LEVEL`    | Log level: `debug`, `info`, `warn`, `error`                          | `warn`   |
-| `DAWE_LOG_FORMAT`   | Log format: `json`, `pretty`                                         | `json`   |
-| `DAWE_SCRIPTS_DIR`  | Absolute path to global bundled scripts directory (auto-injected)    | _(auto)_ |
-| `DAWE_PACKAGE_ROOT` | Absolute path to package root directory (auto-injected)              | _(auto)_ |
+| Variable                    | Description                                                                                    | Default  |
+| --------------------------- | ---------------------------------------------------------------------------------------------- | -------- |
+| `DAWE_LOG_LEVEL`            | Log level: `debug`, `info`, `warn`, `error`                                                    | `warn`   |
+| `DAWE_LOG_FORMAT`           | Log format: `json`, `pretty`                                                                   | `json`   |
+| `DAWE_SCRIPTS_DIR`          | Absolute path to global bundled scripts directory (auto-injected)                              | _(auto)_ |
+| `DAWE_PACKAGE_ROOT`         | Absolute path to package root directory (auto-injected)                                        | _(auto)_ |
 | `DAWE_WORKFLOW_SCRIPTS_DIR` | Absolute path to the current workflow's own `scripts/` directory, if it exists (auto-injected) | _(auto)_ |
 
 **`DAWE_SCRIPTS_DIR`, `DAWE_WORKFLOW_SCRIPTS_DIR`, and `DAWE_PACKAGE_ROOT`** are automatically injected into the environment of every `system_action` command by the extension. You do not need to set them manually. They are available in your workflow scripts as `$DAWE_SCRIPTS_DIR`, `$DAWE_WORKFLOW_SCRIPTS_DIR`, and `$DAWE_PACKAGE_ROOT`.

@@ -596,14 +596,14 @@ Scans directories for YAML workflow definitions, validates, and caches. Scans bo
 
 Default scan paths: `./workflows/examples/`, `~/.pi/workflows/`, `./workflows/`
 
-| Method                         | Returns                           | Description                                                             |
-| ------------------------------ | --------------------------------- | ----------------------------------------------------------------------- |
-| `loadAll()`                    | `Promise<void>`                   | Scan and cache all workflows                                            |
-| `get(name)`                    | `WorkflowDefinition \| undefined` | Get by name                                                             |
-| `list()`                       | `WorkflowSummary[]`               | List all available                                                      |
-| `reload(name)`                 | `Promise<void>`                   | Reload a specific workflow                                              |
-| `getWarnings()`                | `string[]`                        | Warnings from loading                                                   |
-| `getWorkflowScriptsDir(name)`  | `string \| undefined`             | Get the per-workflow `scripts/` directory path, if it exists            |
+| Method                        | Returns                           | Description                                                  |
+| ----------------------------- | --------------------------------- | ------------------------------------------------------------ |
+| `loadAll()`                   | `Promise<void>`                   | Scan and cache all workflows                                 |
+| `get(name)`                   | `WorkflowDefinition \| undefined` | Get by name                                                  |
+| `list()`                      | `WorkflowSummary[]`               | List all available                                           |
+| `reload(name)`                | `Promise<void>`                   | Reload a specific workflow                                   |
+| `getWarnings()`               | `string[]`                        | Warnings from loading                                        |
+| `getWorkflowScriptsDir(name)` | `string \| undefined`             | Get the per-workflow `scripts/` directory path, if it exists |
 
 ### Error Formatting
 

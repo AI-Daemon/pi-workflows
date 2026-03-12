@@ -648,15 +648,63 @@ nodes:
     expect(BUNDLED_SCRIPTS_DIR).toMatch(/_scripts$/);
   });
 
-  // 22. Default constructor discovers the bundled create-workflow from subdirectory
-  it('should discover bundled create-workflow from its subdirectory', async () => {
-    // Use a registry that points at the real workflows/ directory
-    // which contains create-workflow/create-workflow.yml
-    const workflowsDir = resolve('workflows');
-    const registry = new WorkflowRegistry([workflowsDir]);
+  // 22. Subdirectory with multiple YAML files loads all of them
+  it('should load multiple YAML files from a single subdirectory', async () => {
+    createTempDir();
+
+    writeTempSubWorkflow(
+      'multi',
+      'first.yml',
+      `
+version: '1.0'
+workflow_name: first-workflow
+description: First workflow in subdir
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    writeTempSubWorkflow(
+      'multi',
+      'second.yml',
+      `
+version: '1.0'
+workflow_name: second-workflow
+description: Second workflow in subdir
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    const registry = new WorkflowRegistry([TEMP_DIR]);
     await registry.loadAll();
 
     const names = registry.list().map((w) => w.name);
-    expect(names).toContain('create-workflow');
+    expect(names).toContain('first-workflow');
+    expect(names).toContain('second-workflow');
+
+    cleanTempDir();
   });
 });
