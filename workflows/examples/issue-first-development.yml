@@ -63,10 +63,32 @@ nodes:
       description: string
     transitions:
       - condition: 'payload.requires_edits == true'
-        target: check_existing_issue
+        target: resolve_project_dir
         priority: 0
       - condition: 'true'
         target: exit_informational
+        priority: 99
+
+  # --------------------------------------------------------------------------
+  # Phase 1.5: Resolve Project Directory
+  # --------------------------------------------------------------------------
+
+  # System action: find the local directory for the target repository.
+  # The resolved path is stored in payload.project_dir and used by
+  # downstream system_action commands that need project context (git, npm).
+  resolve_project_dir:
+    type: system_action
+    runtime: bash
+    command: >
+      bash "$DAWE_SCRIPTS_DIR/resolve-project-dir.sh"
+      {{payload.project_name}}
+    timeout_seconds: 10
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: check_existing_issue
+        priority: 0
+      - condition: 'true'
+        target: check_existing_issue
         priority: 99
 
   # --------------------------------------------------------------------------
@@ -140,6 +162,7 @@ nodes:
     type: system_action
     runtime: bash
     command: >
+      cd {{payload.project_dir}} &&
       bash "$DAWE_SCRIPTS_DIR/setup-branch.sh"
       {{payload.issue_type}}
       {{default payload.existing_issue_number '0'}}
@@ -159,12 +182,14 @@ nodes:
     type: llm_task
     instruction: >
       Implement the code changes for project {{payload.project_name}}.
+      Project directory: {{payload.project_dir}}
 
       Issue context:
       - Type: {{payload.issue_type}}
       - Description: {{payload.description}}
 
       Guidelines:
+      - Work in the project directory: {{payload.project_dir}}
       - Follow the project's coding standards
       - Write clean, well-documented code
       - Include appropriate error handling
@@ -197,7 +222,7 @@ nodes:
   run_tests:
     type: system_action
     runtime: bash
-    command: 'bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/dawe/latest-test.json'
+    command: 'cd {{payload.project_dir}} && bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/dawe/latest-test.json'
     timeout_seconds: 120
     max_visits: 3
     extract_json: '/tmp/dawe/latest-test.json'
@@ -255,6 +280,7 @@ nodes:
     type: system_action
     runtime: bash
     command: >
+      cd {{payload.project_dir}} &&
       bash "$DAWE_SCRIPTS_DIR/create-pr.sh"
       {{payload.project_name}}
       "[{{{raw_payload.issue_type}}}] {{{raw_payload.description}}}"

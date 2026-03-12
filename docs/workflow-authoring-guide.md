@@ -195,7 +195,7 @@ Use when the engine should **execute a command natively** (bash or Node.js) with
 | `transitions`     | Yes      | array (min 1)           | Conditional transitions                   |
 | `timeout_seconds` | No       | int (1-300, default 30) | Command timeout                           |
 | `env`             | No       | map                     | Additional environment variables          |
-| `working_dir`     | No       | string                  | Working directory                         |
+| `working_dir`     | No       | string                  | Working directory (static, no templates)  |
 | `max_visits`      | No       | int (1-100)             | v2.0: cycle budget                        |
 | `extract_json`    | No       | string                  | v2.0: path to structured JSON output file |
 
@@ -204,6 +204,7 @@ Use when the engine should **execute a command natively** (bash or Node.js) with
 - Payload values in `{{payload.x}}` are **auto-shell-escaped**. Use `{{{raw_payload.x}}}` for unescaped access.
 - The `action_result` object is available in transition conditions: `action_result.exit_code`, `action_result.stdout`, `action_result.stderr`.
 - Commands are validated against security patterns before execution.
+- `working_dir` is a **static string** — it does not support Handlebars templates. If you need a dynamic working directory (e.g., resolved from payload), prefix your command with `cd {{payload.project_dir}} &&` instead.
 
 **Example:**
 
@@ -677,6 +678,7 @@ exit $EXIT_CODE
 7. **Set `max_visits` conservatively** — Start with 3. Most issues resolve in 1-2 iterations. Going above 5 is rarely beneficial and wastes LLM tokens.
 8. **Always include a catch-all transition** — Use `condition: 'true'` with high priority as the last transition to avoid `R-001` errors.
 9. **Test workflows with unit tests** — Load your YAML in a test, validate it, and assert the graph structure.
+10. **Resolve project directories early** — If your workflow has system_action nodes that need project context (git, npm, test runners), add an early node to resolve the project directory and store it in `payload.project_dir`. Use `cd {{payload.project_dir}} &&` to prefix project-dependent commands, since `working_dir` does not support templates.
 
 ---
 
