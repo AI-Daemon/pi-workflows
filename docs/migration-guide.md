@@ -64,7 +64,7 @@ nodes:
   create_issue:
     type: system_action
     runtime: bash
-    command: 'gh issue create --repo {{payload.project_name}} --title "{{payload.issue_type}}"'
+    command: 'gh issue create --repo {{payload.project_name}} --title {{payload.issue_type}}'
     transitions:
       - condition: 'action_result.exit_code == 0'
         target: implement
