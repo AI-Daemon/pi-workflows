@@ -300,4 +300,115 @@ describe('response-formatter', () => {
 
     expect(output).toContain('No workflows are currently available');
   });
+
+  // =========================================================================
+  // DAWE-004: UX Controls in formatter output
+  // =========================================================================
+
+  describe('UX Controls (DAWE-004)', () => {
+    // 15. formatAdvanceResponse includes UX Controls section when ux_controls is present
+    it('should include UX Controls section when ux_controls is present', () => {
+      const result = makeAdvanceResult({
+        ux_controls: {
+          base_spinner: 'Gathering requirements',
+          hide_tools: true,
+          show_output: false,
+        },
+      });
+
+      const output = formatAdvanceResponse(result, 'test-workflow');
+
+      expect(output).toContain('### UX Controls');
+      expect(output).toContain('**Spinner:** Gathering requirements');
+      expect(output).toContain('**Hide Tools:** true');
+      expect(output).toContain('**Show Output:** false');
+    });
+
+    // 16. formatAdvanceResponse omits UX Controls section when ux_controls is undefined
+    it('should omit UX Controls section when ux_controls is undefined', () => {
+      const result = makeAdvanceResult();
+
+      const output = formatAdvanceResponse(result, 'test-workflow');
+
+      expect(output).not.toContain('### UX Controls');
+      expect(output).not.toContain('**Spinner:**');
+      expect(output).not.toContain('**Hide Tools:**');
+      expect(output).not.toContain('**Show Output:**');
+    });
+
+    // 17. UX Controls section shows correct base_spinner value
+    it('should show correct base_spinner value in UX Controls section', () => {
+      const result = makeAdvanceResult({
+        ux_controls: {
+          base_spinner: 'Initiating Enterprise SonarQube Analysis',
+          hide_tools: false,
+          show_output: true,
+        },
+      });
+
+      const output = formatAdvanceResponse(result, 'test-workflow');
+
+      expect(output).toContain('**Spinner:** Initiating Enterprise SonarQube Analysis');
+    });
+
+    // 18. UX Controls section shows Hide Tools: true when hide_tools is true
+    it('should show Hide Tools: true when hide_tools is true', () => {
+      const result = makeAdvanceResult({
+        ux_controls: {
+          base_spinner: 'Implementing code',
+          hide_tools: true,
+          show_output: false,
+        },
+      });
+
+      const output = formatAdvanceResponse(result, 'test-workflow');
+
+      expect(output).toContain('**Hide Tools:** true');
+    });
+
+    // 19. formatCompletedResponse does NOT include UX Controls section
+    it('should NOT include UX Controls section in completed response', () => {
+      const result = makeAdvanceResult({
+        status: 'completed',
+        terminalStatus: 'success',
+        terminalMessage: 'All done.',
+        ux_controls: {
+          base_spinner: 'This should not appear',
+          hide_tools: true,
+          show_output: false,
+        },
+      });
+
+      const instance = makeInstance({
+        status: 'completed',
+        history: [
+          { nodeId: 'task', nodeType: 'llm_task', enteredAt: 1000, completedAt: 2000, payloadSnapshot: {} },
+          { nodeId: 'done', nodeType: 'terminal', enteredAt: 2000, completedAt: 2000, payloadSnapshot: {} },
+        ],
+      });
+
+      const output = formatCompletedResponse(result, 'test-workflow', instance);
+
+      expect(output).not.toContain('### UX Controls');
+      expect(output).not.toContain('This should not appear');
+    });
+
+    // 20. AdvanceWorkflowOutput carries ux_controls through the handler
+    it('should show UX Controls with all fields set together', () => {
+      const result = makeAdvanceResult({
+        ux_controls: {
+          base_spinner: 'Reviewing code',
+          hide_tools: true,
+          show_output: true,
+        },
+      });
+
+      const output = formatAdvanceResponse(result, 'review-workflow');
+
+      expect(output).toContain('### UX Controls');
+      expect(output).toContain('**Spinner:** Reviewing code');
+      expect(output).toContain('**Hide Tools:** true');
+      expect(output).toContain('**Show Output:** true');
+    });
+  });
 });

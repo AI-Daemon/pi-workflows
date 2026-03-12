@@ -2851,4 +2851,63 @@ describe('WorkflowRuntime — ux_controls (DAWE-003)', () => {
     expect(instance).not.toBeNull();
     expect(instance!.status).toBe('cancelled');
   });
+
+  // -----------------------------------------------------------------------
+  // DAWE-004: UX_SPINNER in agent message
+  // -----------------------------------------------------------------------
+
+  it('agentMessage includes UX_SPINNER line when ux_controls is present', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    expect(startResult.data.status).toBe('waiting_for_agent');
+    expect(startResult.data.agentMessage).toContain('UX_SPINNER:');
+    // The node has ui_spinner override "Initiating Enterprise SonarQube Analysis"
+    expect(startResult.data.agentMessage).toContain('UX_SPINNER: Initiating Enterprise SonarQube Analysis');
+  });
+
+  it('agentMessage includes UX_SPINNER with derived spinner for nodes without ui_spinner', async () => {
+    const yaml = loadFixture('ux-controls-runtime.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    // Advance past the override node to task_no_override
+    const adv = await runtime.advance(startResult.data.instanceId, 'decide_with_override', { action: 'next' });
+    expect(adv.ok).toBe(true);
+    if (!adv.ok) return;
+
+    expect(adv.data.agentMessage).toContain('UX_SPINNER:');
+    // The derived spinner should not be the override text
+    expect(adv.data.agentMessage).not.toContain('Initiating Enterprise SonarQube Analysis');
+  });
+
+  it('terminal agentMessage does not include UX_SPINNER line', async () => {
+    const yaml = loadFixture('simple-linear.yml');
+    const loadResult = runtime.loadWorkflow(yaml);
+    expect(loadResult.ok).toBe(true);
+    if (!loadResult.ok) return;
+
+    const startResult = await runtime.startInstance(loadResult.data);
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) return;
+
+    await runtime.advance(startResult.data.instanceId, 'ask', { choice: 'go' });
+    const adv2 = await runtime.advance(startResult.data.instanceId, 'do-task', { result: 'done' });
+    expect(adv2.ok).toBe(true);
+    if (!adv2.ok) return;
+
+    expect(adv2.data.status).toBe('completed');
+    expect(adv2.data.agentMessage).not.toContain('UX_SPINNER:');
+  });
 });

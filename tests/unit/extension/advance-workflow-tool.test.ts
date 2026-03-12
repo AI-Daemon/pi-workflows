@@ -532,4 +532,87 @@ describe('AdvanceWorkflowHandler', () => {
       expect(result.text).toContain('Available Workflows');
     });
   });
+
+  // =========================================================================
+  // DAWE-004: ux_controls propagation through handler output
+  // =========================================================================
+
+  describe('DAWE-004: ux_controls propagation', () => {
+    it('should include ux_controls in output when starting a workflow (waiting_for_agent)', async () => {
+      const result = await handler.handle({
+        action: 'start',
+        workflow_name: 'simple-linear',
+        confirm: true,
+      });
+
+      expect(result.isError).toBeUndefined();
+      // simple-linear nodes don't have explicit ui_spinner, but ux_controls should still be present
+      // since DAWE-003 populates them with LexicalFormatter fallback
+      expect(result.ux_controls).toBeDefined();
+      expect(result.ux_controls!.base_spinner).toBeTruthy();
+      expect(typeof result.ux_controls!.hide_tools).toBe('boolean');
+      expect(typeof result.ux_controls!.show_output).toBe('boolean');
+    });
+
+    it('should include ux_controls in output when advancing to a waiting_for_agent node', async () => {
+      const startResult = await handler.handle({
+        action: 'start',
+        workflow_name: 'simple-linear',
+        confirm: true,
+      });
+      const instanceMatch = startResult.text.match(/\*\*INSTANCE:\*\*\s+(\S+)/);
+
+      const advanceResult = await handler.handle({
+        action: 'advance',
+        instance_id: instanceMatch![1]!,
+        current_node_id: 'ask',
+        node_payload: { choice: 'implement' },
+      });
+
+      expect(advanceResult.isError).toBeUndefined();
+      expect(advanceResult.ux_controls).toBeDefined();
+      expect(advanceResult.ux_controls!.base_spinner).toBeTruthy();
+    });
+
+    it('should NOT include ux_controls in output when workflow completes', async () => {
+      const startResult = await handler.handle({
+        action: 'start',
+        workflow_name: 'simple-linear',
+        confirm: true,
+      });
+      const instanceMatch = startResult.text.match(/\*\*INSTANCE:\*\*\s+(\S+)/);
+      const instanceId = instanceMatch![1]!;
+
+      // Advance to do-task
+      await handler.handle({
+        action: 'advance',
+        instance_id: instanceId,
+        current_node_id: 'ask',
+        node_payload: { choice: 'implement' },
+      });
+
+      // Advance to terminal
+      const terminalResult = await handler.handle({
+        action: 'advance',
+        instance_id: instanceId,
+        current_node_id: 'do-task',
+        node_payload: { result: 'all done' },
+      });
+
+      expect(terminalResult.text).toContain('Workflow completed');
+      expect(terminalResult.ux_controls).toBeUndefined();
+    });
+
+    it('should NOT include ux_controls on error responses', async () => {
+      const result = await handler.handle({
+        action: 'advance',
+        instance_id: 'nonexistent',
+        current_node_id: 'x',
+        node_payload: {},
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.ux_controls).toBeUndefined();
+    });
+  });
 });

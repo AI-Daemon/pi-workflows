@@ -144,7 +144,7 @@ export default function piWorkflowsExtension(pi: ExtensionAPI): void {
 
       return {
         content: [{ type: 'text' as const, text: result.text }],
-        details: { isError: result.isError },
+        details: { isError: result.isError, ux_controls: result.ux_controls },
       };
     },
   });

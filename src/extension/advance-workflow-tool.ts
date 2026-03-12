@@ -49,6 +49,12 @@ export interface AdvanceWorkflowInput {
 export interface AdvanceWorkflowOutput {
   text: string;
   isError?: boolean;
+  /** UX controls for the Pi extension TUI layer, propagated from AdvanceResult. */
+  ux_controls?: {
+    base_spinner: string;
+    hide_tools: boolean;
+    show_output: boolean;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +298,11 @@ export class AdvanceWorkflowHandler {
    */
   private async formatResult(result: AdvanceResult, workflowName: string): Promise<AdvanceWorkflowOutput> {
     if (result.status === 'waiting_for_agent') {
-      return { text: formatAdvanceResponse(result, workflowName) };
+      const output: AdvanceWorkflowOutput = { text: formatAdvanceResponse(result, workflowName) };
+      if (result.ux_controls) {
+        output.ux_controls = result.ux_controls;
+      }
+      return output;
     }
 
     if (result.status === 'completed' || result.status === 'failed') {
