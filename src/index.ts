@@ -105,6 +105,7 @@ export type {
   RuntimeEvents,
   WorkflowInstance,
   AdvanceResult,
+  UxControls,
   InstanceStatus,
   InstanceHistoryEntry,
   SystemActionChainEntry,

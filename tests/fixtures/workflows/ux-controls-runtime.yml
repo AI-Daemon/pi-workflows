@@ -1,0 +1,59 @@
+# Workflow fixture for ux_controls runtime tests (DAWE-003).
+# Tests spinner override, hide_tools, and show_tool_output on LLM nodes.
+version: '1.0'
+workflow_name: ux-controls-runtime
+description: Tests ux_controls population in AdvanceResult.
+initial_node: decide_with_override
+
+nodes:
+  decide_with_override:
+    type: llm_decision
+    instruction: 'Decide with custom spinner.'
+    required_schema:
+      action: string
+    transitions:
+      - condition: "payload.action == 'next'"
+        target: task_no_override
+      - condition: "payload.action == 'hidden'"
+        target: task_hidden_tools
+      - condition: "payload.action == 'visible'"
+        target: task_show_output
+      - condition: 'true'
+        target: done
+    hide_tools: true
+    ui_spinner: 'Initiating Enterprise SonarQube Analysis'
+    show_tool_output: true
+
+  task_no_override:
+    type: llm_task
+    instruction: 'Perform a task with derived spinner.'
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: done
+
+  task_hidden_tools:
+    type: llm_task
+    instruction: 'Perform a task with hide_tools true.'
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: done
+    hide_tools: true
+
+  task_show_output:
+    type: llm_task
+    instruction: 'Perform a task with show_tool_output true.'
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: done
+    show_tool_output: true
+
+  done:
+    type: terminal
+    status: success
+    message: 'Completed.'

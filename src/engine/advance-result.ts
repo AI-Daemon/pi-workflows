@@ -67,6 +67,30 @@ export interface WorkflowInstance {
 // AdvanceResult
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// UX Controls
+// ---------------------------------------------------------------------------
+
+/**
+ * UX controls resolved by the engine for the Pi extension TUI layer.
+ *
+ * Populated on every `AdvanceResult` with `status === 'waiting_for_agent'`.
+ * Provides a clean, structured contract so the extension can drive the TUI
+ * without parsing instructions or guessing node intent.
+ */
+export interface UxControls {
+  /** Resolved spinner text for the TUI. Derived from `ui_spinner` override or `LexicalFormatter.toActionPhrase(nodeId)`. */
+  base_spinner: string;
+  /** When true, suppress native Pi tool JSON output in the TUI. */
+  hide_tools: boolean;
+  /** When true, show advance_workflow payload in TUI output for debugging. */
+  show_output: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// System action chain entry
+// ---------------------------------------------------------------------------
+
 /** Entry for a system action that was auto-executed during advancement. */
 export interface SystemActionChainEntry {
   /** The system_action node ID. */
@@ -96,6 +120,11 @@ export interface AdvanceResult {
   completionSchema?: Record<string, string>;
   /** Scoped payload for context_keys. */
   contextPayload?: Record<string, unknown>;
+
+  // -- UX Controls --
+
+  /** UX controls for the Pi extension TUI layer. Present when status is 'waiting_for_agent'. */
+  ux_controls?: UxControls;
 
   // -- Fields for 'completed' status --
 
