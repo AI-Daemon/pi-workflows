@@ -74,22 +74,27 @@ nodes:
   # --------------------------------------------------------------------------
 
   # System action: find the local directory for the target repository.
-  # The resolved path is stored in payload.project_dir and used by
-  # downstream system_action commands that need project context (git, npm).
+  # The agent resolves the local project directory so downstream
+  # system_action commands can cd into it for git, npm, etc.
+  # The bundled script resolve-project-dir.sh can help locate the directory.
   resolve_project_dir:
-    type: system_action
-    runtime: bash
-    command: >
-      bash "$DAWE_SCRIPTS_DIR/resolve-project-dir.sh"
-      {{payload.project_name}}
-    timeout_seconds: 10
+    type: llm_decision
+    instruction: >
+      Determine the local directory for the project {{payload.project_name}}.
+
+      Run the resolve-project-dir.sh helper script to find it:
+        bash "$DAWE_SCRIPTS_DIR/resolve-project-dir.sh" <repo>
+
+      Or locate it manually — common locations:
+        /root/<repo-name>
+        ~/.pi/agent/git/github.com/<owner>/<repo>
+
+      Provide the absolute path to the project root directory.
+    required_schema:
+      project_dir: string
     transitions:
-      - condition: 'action_result.exit_code == 0'
-        target: check_existing_issue
-        priority: 0
       - condition: 'true'
         target: check_existing_issue
-        priority: 99
 
   # --------------------------------------------------------------------------
   # Phase 2: Issue Management
