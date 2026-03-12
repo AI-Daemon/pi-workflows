@@ -10,6 +10,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 
+# --help flag
+if [ "${1:-}" == "--help" ]; then
+  echo "Usage: scan-scripts.sh [json-output-path]"
+  echo ""
+  echo "Scans the global scripts directory (\$DAWE_SCRIPTS_DIR) and produces"
+  echo "a JSON inventory of all scripts with their descriptions and usage."
+  echo ""
+  echo "Arguments:"
+  echo "  json-output-path   Path to write JSON output (default: /tmp/dawe/script-inventory.json)"
+  echo ""
+  echo "Exit codes:"
+  echo "  0  Success"
+  echo "  2  Error (scripts directory not found)"
+  exit 0
+fi
+
 OUTPUT_FILE="${1:-/tmp/dawe/script-inventory.json}"
 mkdir -p "$(dirname "$OUTPUT_FILE")"
 
