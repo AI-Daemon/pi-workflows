@@ -116,7 +116,7 @@ nodes:
       gh pr review {{payload.pr_number}}
       --repo {{payload.repo}}
       --approve
-      --body "{{payload.summary}}"
+      --body {{payload.summary}}
     timeout_seconds: 30
     transitions:
       - condition: 'action_result.exit_code == 0'
@@ -131,7 +131,7 @@ nodes:
       gh pr review {{payload.pr_number}}
       --repo {{payload.repo}}
       --comment
-      --body "{{payload.summary}}"
+      --body {{payload.summary}}
     timeout_seconds: 30
     transitions:
       - condition: 'action_result.exit_code == 0'

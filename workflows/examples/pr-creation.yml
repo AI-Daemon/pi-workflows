@@ -126,10 +126,9 @@ nodes:
     runtime: bash
     command: >
       gh pr create
-      --title "{{payload.title}}"
-      --body "{{payload.description}}"
-      --base "{{payload.base_branch}}"
-      --json number,url
+      --title {{payload.title}}
+      --body {{payload.description}}
+      --base {{payload.base_branch}}
     timeout_seconds: 30
     transitions:
       - condition: 'action_result.exit_code == 0'

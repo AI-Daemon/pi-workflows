@@ -542,9 +542,21 @@ Use Handlebars syntax in `instruction`, `command`, and `message` fields:
 
 ```yaml
 instruction: 'Implement changes for {{payload.project_name}}: {{payload.description}}'
-command: 'gh issue create --repo {{payload.project_name}} --title "{{payload.title}}"'
+command: 'gh issue create --repo {{payload.project_name}} --title {{payload.title}}'
 message: 'Completed: {{payload.project_name}}'
 ```
+
+> **⚠️ Important: Do not wrap `{{payload.x}}` in quotes inside `command` fields.**
+> The engine auto-shell-escapes all `{{payload.x}}` references by wrapping them in single quotes.
+> Adding your own quotes (e.g., `"{{payload.title}}"`) produces double-layer quoting — the
+> script receives values with embedded literal quote characters, causing commands to fail.
+>
+> - ✅ `--title {{payload.title}}` → resolves to `--title 'My Title'`
+> - ❌ `--title "{{payload.title}}"` → resolves to `--title "'My Title'"` (broken)
+>
+> If you need to combine literal text with template variables in a single shell argument,
+> use triple-stache `{{{raw_payload.x}}}` with manual quoting:
+> `"[{{{raw_payload.issue_type}}}] {{{raw_payload.description}}}"`
 
 ### Handlebars Syntax Cheat Sheet
 
@@ -611,7 +623,18 @@ command: 'echo {{payload.user_input}}'
 # echo 'hello; rm -rf /'    (safely escaped)
 ```
 
-Use `{{{raw_payload.x}}}` only when you need unescaped access (e.g., passing to a program that handles its own escaping).
+> **⚠️ Do not add your own quotes around `{{payload.x}}` in commands.**
+> The auto-escaping already wraps each value in single quotes. Adding double quotes
+> around the template expression (e.g., `"{{payload.x}}"`) creates double-layer
+> quoting that breaks command arguments. See the [quoting warning above](#how-to-reference-payload-in-instructionscommands).
+
+Use `{{{raw_payload.x}}}` only when you need unescaped access (e.g., combining literal text
+with a template variable in a single shell argument):
+
+```yaml
+# Mixed literal + template in one argument — use raw_payload with manual quoting
+command: 'gh issue create --title "[{{{raw_payload.issue_type}}}] {{{raw_payload.description}}}"'
+```
 
 ### Testing Scripts Independently
 
@@ -758,6 +781,7 @@ Before deploying a workflow, verify the following:
 
 - [ ] System action commands don't contain dangerous patterns
 - [ ] Template variables use `{{payload.x}}` (auto-escaped) not `{{{raw_payload.x}}}` unless necessary
+- [ ] `{{payload.x}}` references in `command` fields are **not** wrapped in quotes (auto-escaping handles quoting)
 - [ ] Environment variables don't expose secrets
 
 ---

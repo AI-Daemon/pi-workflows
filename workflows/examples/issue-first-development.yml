@@ -79,8 +79,8 @@ nodes:
     runtime: bash
     command: >
       bash "$DAWE_SCRIPTS_DIR/check-gh-issue.sh"
-      "{{payload.project_name}}"
-      "{{payload.description}}"
+      {{payload.project_name}}
+      {{payload.description}}
     timeout_seconds: 30
     transitions:
       - condition: 'action_result.exit_code == 0'
@@ -119,9 +119,9 @@ nodes:
     runtime: bash
     command: >
       bash "$DAWE_SCRIPTS_DIR/create-gh-issue.sh"
-      "{{payload.project_name}}"
-      "[{{payload.issue_type}}] {{payload.description}}"
-      "{{payload.description}}"
+      {{payload.project_name}}
+      "[{{{raw_payload.issue_type}}}] {{{raw_payload.description}}}"
+      {{payload.description}}
     timeout_seconds: 30
     transitions:
       - condition: 'action_result.exit_code == 0'
@@ -141,8 +141,8 @@ nodes:
     runtime: bash
     command: >
       bash "$DAWE_SCRIPTS_DIR/setup-branch.sh"
-      "{{payload.issue_type}}"
-      "{{default payload.existing_issue_number '0'}}"
+      {{payload.issue_type}}
+      {{default payload.existing_issue_number '0'}}
     timeout_seconds: 15
     transitions:
       - condition: 'action_result.exit_code == 0'
@@ -256,9 +256,9 @@ nodes:
     runtime: bash
     command: >
       bash "$DAWE_SCRIPTS_DIR/create-pr.sh"
-      "{{payload.project_name}}"
-      "[{{payload.issue_type}}] {{payload.description}}"
-      "Closes issue. {{payload.description}}"
+      {{payload.project_name}}
+      "[{{{raw_payload.issue_type}}}] {{{raw_payload.description}}}"
+      "Closes issue. {{{raw_payload.description}}}"
     timeout_seconds: 30
     transitions:
       - condition: 'action_result.exit_code == 0'
