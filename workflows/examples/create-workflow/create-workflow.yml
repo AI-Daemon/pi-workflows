@@ -1,0 +1,1068 @@
+# create-workflow.yml — Workflow that creates new DAWE workflows
+#
+# Guides an agent through authoring a new workflow YAML file via
+# collaborative conversation. The agent acts as a workflow architect
+# facilitating a design session — not a form-filler.
+#
+# v2 improvements:
+# - Conversational discovery with reflection before each question
+# - Soft understanding checkpoint before formal plan summary
+# - Walkthrough self-review before user sees the design
+# - Design questions presented one at a time, not dumped
+# - Workflow architect persona throughout
+# - Optional post-mortem retro at the end
+
+version: '2.0'
+workflow_name: create-workflow
+description: Guides an agent through creating a new DAWE workflow.
+initial_node: acknowledge
+
+metadata:
+  category: meta
+  tags:
+    - workflow-creation
+    - conversational
+    - meta
+
+nodes:
+  # --------------------------------------------------------------------------
+  # Phase 1: Kickoff & Naming
+  # --------------------------------------------------------------------------
+
+  # Quick acknowledgement with persona framing.
+  acknowledge:
+    type: llm_decision
+    instruction: >
+      You are a workflow architect facilitating a collaborative design
+      session. You help people turn ideas into structured, automated
+      workflows.
+
+      Give a brief, warm acknowledgement that you are ready to create
+      a new workflow. Set the tone: this is a conversation, not a form.
+
+      Check the conversation context: has the user already described
+      what they want the workflow to do?
+
+      - If YES: set has_summary to true and capture their description
+        in summary.
+      - If NO: set has_summary to false, ask the user for a quick
+        summary of what the workflow should do, and set summary to
+        empty string.
+    required_schema:
+      has_summary: boolean
+      summary: string
+    transitions:
+      - condition: 'payload.has_summary == true'
+        target: propose_name
+        priority: 0
+      - condition: 'true'
+        target: get_summary
+        priority: 1
+
+  # User hasn't described the workflow yet — ask for a summary.
+  get_summary:
+    type: llm_decision
+    instruction: >
+      The user has not yet described what they want the workflow to do.
+      Ask them — keep it open-ended and inviting. Something like
+      "What kind of workflow do you have in mind?" Not a list of
+      questions, just one natural opener.
+
+      Capture their response as the summary.
+    required_schema:
+      summary: string
+    transitions:
+      - condition: 'true'
+        target: propose_name
+
+  # Analyze the summary and propose a kebab-case workflow name.
+  propose_name:
+    type: llm_decision
+    max_visits: 5
+    instruction: >
+      Based on the user's summary: "{{payload.summary}}"
+
+      {{#if payload.name_feedback}}
+      The user did not like the previous name "{{payload.proposed_name}}".
+      Their feedback: "{{payload.name_feedback}}"
+      Use this feedback to propose a better name.
+      {{else}}
+      Analyze the intent and propose a kebab-case workflow name
+      (e.g. "deploy-staging", "code-review", "test-fix-cycle").
+      {{/if}}
+
+      The name must be 3-64 characters, start with a letter, and use
+      only lowercase letters, numbers, and hyphens.
+
+      Present the proposed name to the user and ask if they like it.
+      Capture their acceptance and any feedback if they want changes.
+    required_schema:
+      proposed_name: string
+      name_accepted: boolean
+      name_feedback: string
+    transitions:
+      - condition: 'payload.name_accepted == true'
+        target: confirm_name
+        priority: 0
+      - condition: '$metadata.visits.propose_name >= 5'
+        target: budget_exhausted
+        priority: 1
+      - condition: 'true'
+        target: propose_name
+        priority: 2
+
+  # Acknowledge the chosen name and tell the user to hang tight.
+  confirm_name:
+    type: llm_task
+    instruction: >
+      The user has accepted the workflow name "{{payload.proposed_name}}".
+
+      Acknowledge the name choice and inform the user to hang tight
+      while you initialize the workflow.
+    completion_schema:
+      status: string
+    context_keys:
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: init_workflow
+
+  # Run the init script to create the directory and copy the scaffold.
+  init_workflow:
+    type: system_action
+    runtime: bash
+    command: 'bash "$DAWE_WORKFLOW_SCRIPTS_DIR/init-workflow.sh" {{payload.proposed_name}}'
+    timeout_seconds: 15
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: discover_first
+        priority: 0
+      - condition: 'true'
+        target: init_failed
+        priority: 1
+
+  # --------------------------------------------------------------------------
+  # Phase 2: Discovery — understand the workflow through conversation
+  # --------------------------------------------------------------------------
+
+  # First visit only — sets the tone and asks a broad opening question.
+  discover_first:
+    type: llm_decision
+    instruction: >
+      You are a workflow architect facilitating a collaborative design
+      session for "{{payload.proposed_name}}".
+
+      The workflow has been initialized. Let the user know you're back
+      and ready to dig into what they need.
+
+      Summary so far: "{{payload.summary}}"
+
+      Analyze this summary and ask the user ONE broad opening question
+      to deepen your understanding. Keep it conversational and inviting.
+      Set discovery_complete to false.
+    required_schema:
+      last_question: string
+      last_answer: string
+      discovery_notes: string
+      discovery_complete: boolean
+    transitions:
+      - condition: 'true'
+        target: discover
+
+  # Return visits — the core conversation loop. Agent reflects on what
+  # it heard, shares observations, then asks ONE question.
+  discover:
+    type: llm_decision
+    max_visits: 25
+    instruction: >
+      You are a workflow architect in a discovery conversation about
+      "{{payload.proposed_name}}".
+
+      CONVERSATION SO FAR:
+      {{payload.discovery_notes}}
+
+      Last Q&A: {{payload.last_question}} → {{payload.last_answer}}
+
+      {{#if payload.review_walkthrough_gaps}}
+      REVIEW GAPS needing user input:
+      {{payload.review_walkthrough_gaps}}
+      Weave these into the conversation naturally.
+      {{/if}}
+
+      {{#if payload.plan_feedback}}
+      PLAN FEEDBACK: "{{payload.plan_feedback}}"
+      {{/if}}
+
+      First, REFLECT: share a brief observation about what you heard.
+      What picture is forming? What clicked? What's still fuzzy?
+
+      Then decide: is your understanding thorough enough to move on?
+      If confident, say so and ask if the user is ready. Set
+      discovery_complete to true.
+      If the user signals done ("that's it", "let's go"), set
+      discovery_complete to true.
+      Otherwise, ask ONE focused question (two max if related).
+
+      Do NOT rush. Reflect, acknowledge, THEN ask. You are a
+      thoughtful collaborator, not a question machine.
+    required_schema:
+      last_question: string
+      last_answer: string
+      discovery_notes: string
+      discovery_complete: boolean
+    transitions:
+      - condition: 'payload.discovery_complete == true'
+        target: check_understanding
+        priority: 0
+      - condition: '$metadata.visits.discover >= 25'
+        target: budget_exhausted
+        priority: 1
+      - condition: 'true'
+        target: discover
+        priority: 2
+
+  # --------------------------------------------------------------------------
+  # Phase 2b: Soft checkpoint before formal summary
+  # --------------------------------------------------------------------------
+
+  # Informal gut-check — "here's what I'm hearing" before the formal plan.
+  check_understanding:
+    type: llm_decision
+    max_visits: 5
+    instruction: >
+      You've been having a thorough conversation about
+      "{{payload.proposed_name}}". Before moving to a formal plan,
+      do a quick gut-check with the user.
+
+      Discovery notes:
+      {{payload.discovery_notes}}
+
+      {{#if payload.check_feedback}}
+      The user had feedback on your previous check:
+      {{payload.check_feedback}}
+      Address their points.
+      {{/if}}
+
+      Share your understanding informally — conversational tone, not
+      a structured document. Something like "Here's what I'm hearing..."
+      or "So the way I see it..." Cover the big picture: what the
+      workflow does, the main flow, the key moving parts.
+
+      Then ask: "Does this track? Anything I'm off on?"
+
+      If the user confirms, set confirmed to true.
+      If they have corrections or additions, capture in check_feedback
+      and set confirmed to false.
+    required_schema:
+      understanding_check: string
+      confirmed: boolean
+      check_feedback: string
+    transitions:
+      - condition: 'payload.confirmed == true'
+        target: summarize_plan
+        priority: 0
+      - condition: '$metadata.visits.check_understanding >= 5'
+        target: budget_exhausted
+        priority: 1
+      # User has more — go back to conversation
+      - condition: 'true'
+        target: discover
+        priority: 2
+
+  # --------------------------------------------------------------------------
+  # Phase 3: Plan Summary & Approval
+  # --------------------------------------------------------------------------
+
+  # Formal structured summary for user approval.
+  summarize_plan:
+    type: llm_decision
+    max_visits: 3
+    instruction: >
+      Based on everything learned during discovery, present a clear
+      summary of the planned workflow "{{payload.proposed_name}}" to
+      the user for approval.
+
+      Discovery notes:
+      {{payload.discovery_notes}}
+
+      {{#if payload.plan_feedback}}
+      The user had feedback on the previous summary:
+      "{{payload.plan_feedback}}"
+      Revise the summary to address their concerns.
+      {{/if}}
+
+      Structure the summary as:
+      1. Overall purpose
+      2. Step-by-step flow (numbered phases)
+      3. Key decision points / branches
+      4. Cycle/retry patterns (if any)
+      5. Success/failure outcomes
+
+      Ask the user if this looks right or if they want changes.
+    required_schema:
+      plan_summary: string
+      plan_approved: boolean
+      plan_feedback: string
+    transitions:
+      - condition: 'payload.plan_approved == true'
+        target: read_authoring_guide
+        priority: 0
+      - condition: '$metadata.visits.summarize_plan >= 3'
+        target: budget_exhausted
+        priority: 1
+      # Feedback — go back to conversation
+      - condition: 'true'
+        target: discover
+        priority: 2
+
+  # --------------------------------------------------------------------------
+  # Phase 4: Study the authoring guide before designing
+  # --------------------------------------------------------------------------
+
+  read_authoring_guide:
+    type: llm_task
+    instruction: >
+      Before designing the workflow nodes, read the DAWE workflow authoring
+      guide to understand the available node types, transition syntax,
+      payload handling, and best practices.
+
+      Find and read the workflow authoring guide. Check these locations:
+      - Run: echo $DAWE_PACKAGE_ROOT to find the package root, then
+        read docs/workflow-authoring-guide.md inside it
+      - Or look in ~/.pi/agent/git/github.com/AI-Daemon/pi-workflows/docs/workflow-authoring-guide.md
+
+      Pay close attention to:
+      - The four node types (llm_decision, llm_task, system_action, terminal)
+      - Transition conditions and priority ordering
+      - Payload flow and Handlebars templating
+      - Bounded cycles (v2.0) if the workflow needs retry loops
+      - Best practices and the validation checklist
+
+      When done, confirm you have read and understood the guide.
+    completion_schema:
+      status: string
+    transitions:
+      - condition: 'true'
+        target: scan_global_scripts
+
+  # --------------------------------------------------------------------------
+  # Phase 5: Scan scripts + Design
+  # --------------------------------------------------------------------------
+
+  # Scan the global scripts folder to see what's already available.
+  scan_global_scripts:
+    type: system_action
+    runtime: bash
+    command: 'bash "$DAWE_SCRIPTS_DIR/scan-scripts.sh" /tmp/dawe/script-inventory.json'
+    timeout_seconds: 15
+    extract_json: '/tmp/dawe/script-inventory.json'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: present_walkthrough
+        priority: 0
+      - condition: 'true'
+        target: present_walkthrough
+        priority: 1
+
+  # Agent thinks through the design and presents ONLY the walkthrough.
+  # No design questions yet — keep it digestible.
+  present_walkthrough:
+    type: llm_task
+    max_visits: 5
+    instruction: >
+      You are now the solution architect for "{{payload.proposed_name}}".
+
+      Available global scripts:
+      {{json payload.extracted_json}}
+
+      {{#if payload.walkthrough_revision_notes}}
+      REVISION: The self-review found issues to address:
+      {{payload.walkthrough_revision_notes}}
+      Revise the walkthrough accordingly.
+      {{/if}}
+
+      Using what you learned from the authoring guide, the discovery
+      notes, and the available scripts, think through the full workflow
+      logic:
+      - What are the phases and nodes?
+      - What type is each node?
+      - Where are the branches and transitions?
+      - Are there cycles? What are the budgets?
+      - What are the failure modes and terminal states?
+      - Which scripts can be reused vs need to be created?
+
+      Present the user with a walkthrough using EXACTLY this format:
+
+      **`<workflow-name>` — <node count> nodes, <version>**
+
+      **Phase N: <Phase Title>**
+      N. **`<node_name>`** — <one-line description>.
+         - <outcome> → `<target_node>`
+         - <outcome> → `<target_node>`
+
+      (repeat for each phase)
+
+      **Terminals**
+      N. **`<node_name>`** — <Success/Failure/Suspended>
+
+      IMPORTANT: Present ONLY the walkthrough. Do NOT list design
+      questions or script suggestions yet — those come later in a
+      separate conversation. Keep this focused and digestible.
+
+      Discovery notes:
+      {{payload.discovery_notes}}
+
+      Approved plan summary:
+      {{payload.plan_summary}}
+    completion_schema:
+      walkthrough: string
+      design_questions_list: string
+      script_suggestions: string
+      status: string
+    context_keys:
+      - discovery_notes
+      - plan_summary
+      - proposed_name
+      - extracted_json
+      - walkthrough_revision_notes
+    transitions:
+      - condition: 'true'
+        target: review_walkthrough
+
+  # --------------------------------------------------------------------------
+  # Phase 5b: Walkthrough self-review
+  # --------------------------------------------------------------------------
+
+  # Agent challenges its own walkthrough before the user sees the
+  # design questions. Catches missing steps, awkward flows, dead ends.
+  review_walkthrough:
+    type: llm_decision
+    max_visits: 3
+    instruction: >
+      You just designed a walkthrough for "{{payload.proposed_name}}".
+      Now challenge it — step back and look at it from the user's
+      perspective.
+
+      Walkthrough:
+      {{payload.walkthrough}}
+
+      Discovery notes (what the user actually asked for):
+      {{payload.discovery_notes}}
+
+      Approved plan summary:
+      {{payload.plan_summary}}
+
+      {{#if payload.previous_walkthrough_gaps}}
+      Previous review found these gaps (some may have been addressed):
+      {{payload.previous_walkthrough_gaps}}
+      {{/if}}
+
+      Look for:
+      - Missing steps or phases the user would expect
+      - Awkward flow that would confuse the user
+      - Dead ends with no recovery
+      - Missing error handling or edge cases
+      - Cycle budgets that are too tight or too loose
+      - Things the user explicitly asked for that aren't reflected
+
+      Classify each gap:
+      - INTERNAL: Can be fixed by revising the walkthrough silently
+        (e.g., missing error terminal, wrong transition). Put in
+        walkthrough_revision_notes.
+      - USER_NEEDED: Changes the user's expectations or needs their
+        input (e.g., missing a whole phase they described). Put in
+        review_walkthrough_gaps.
+
+      If no meaningful gaps, set gaps_found to false. Don't invent
+      problems.
+    required_schema:
+      gaps_found: boolean
+      walkthrough_revision_notes: string
+      review_walkthrough_gaps: string
+      needs_user_input: boolean
+      previous_walkthrough_gaps: string
+    transitions:
+      # No gaps — walkthrough is solid, discuss with user
+      - condition: 'payload.gaps_found == false'
+        target: design_discussion
+        priority: 0
+      # Gaps need user input — go to conversation
+      - condition: 'payload.gaps_found == true && payload.needs_user_input == true'
+        target: discover
+        priority: 1
+      # Internal gaps — revise silently
+      - condition: 'payload.gaps_found == true && payload.needs_user_input == false'
+        target: present_walkthrough
+        priority: 2
+      # Budget exhausted — move on with best version
+      - condition: '$metadata.visits.review_walkthrough >= 3'
+        target: design_discussion
+        priority: 3
+      # Catch-all
+      - condition: 'true'
+        target: design_discussion
+        priority: 99
+
+  # --------------------------------------------------------------------------
+  # Phase 5c: Conversational design discussion
+  # --------------------------------------------------------------------------
+
+  # Presents design questions ONE AT A TIME and discusses the walkthrough
+  # with the user. Replaces the old binary signoff.
+  design_discussion:
+    type: llm_decision
+    max_visits: 8
+    instruction: >
+      You are discussing the workflow design for "{{payload.proposed_name}}"
+      with the user.
+
+      Walkthrough:
+      {{payload.walkthrough}}
+
+      {{#if payload.design_questions_list}}
+      Design questions you need answered (work through these ONE AT
+      A TIME — do not dump them all at once):
+      {{payload.design_questions_list}}
+      {{/if}}
+
+      {{#if payload.script_suggestions}}
+      Script suggestions to share when appropriate:
+      {{payload.script_suggestions}}
+      {{/if}}
+
+      {{#if payload.design_feedback}}
+      Previous discussion notes:
+      {{payload.design_feedback}}
+      {{/if}}
+
+      {{#if payload.review_walkthrough_gaps}}
+      The self-review flagged these for user input:
+      {{payload.review_walkthrough_gaps}}
+      Weave these into the discussion naturally.
+      {{/if}}
+
+      Have a real conversation about the design. If you have design
+      questions, ask ONE now. Discuss the user's answer — acknowledge
+      it, share your thinking, explore implications. If the user has
+      feedback on the walkthrough, discuss it.
+
+      Track what's been resolved vs what's still open. When all
+      questions are answered and the user is happy with the design,
+      set design_approved to true.
+
+      If the user wants fundamental changes that require going back
+      to discovery, set needs_rediscovery to true.
+    required_schema:
+      design_approved: boolean
+      design_feedback: string
+      needs_rediscovery: boolean
+    transitions:
+      - condition: 'payload.design_approved == true'
+        target: design_nodes
+        priority: 0
+      - condition: 'payload.needs_rediscovery == true'
+        target: discover
+        priority: 1
+      - condition: '$metadata.visits.design_discussion >= 8'
+        target: budget_exhausted
+        priority: 2
+      # More to discuss
+      - condition: 'true'
+        target: design_discussion
+        priority: 3
+
+  # --------------------------------------------------------------------------
+  # Phase 6: Technical Node Specification
+  # --------------------------------------------------------------------------
+
+  # Agent produces the full technical spec.
+  design_nodes:
+    type: llm_task
+    instruction: >
+      You are the DAWE workflow expert. You have the approved walkthrough
+      and the user's design feedback. Now produce the full technical
+      specification for "{{payload.proposed_name}}".
+
+      Be opinionated about implementation. You know DAWE best — make
+      strong choices about node types, transition patterns, cycle budgets,
+      payload shape, and script design. Do not ask the user for technical
+      decisions. The user owns the business requirements (the walkthrough);
+      you own the engineering.
+
+      For EACH node, specify:
+      - Node name (verb_noun pattern)
+      - Type (llm_decision / llm_task / system_action / terminal)
+      - For llm_decision: instruction summary, required_schema fields+types
+      - For llm_task: instruction summary, completion_schema fields+types,
+        context_keys
+      - For system_action: command, runtime, timeout, extract_json if needed
+      - For terminal: status, message
+      - Transitions: condition, target, priority
+      - max_visits if node is a cycle target
+
+      For EACH script needed, specify:
+      - Script name and location (per-workflow scripts/ or global _scripts/)
+      - Purpose, arguments, exit codes
+      - Whether it produces JSON output
+
+      Also specify:
+      - Workflow version (1.0 or 2.0)
+      - Full payload flow: what keys are produced and consumed at each step
+
+      Approved walkthrough:
+      {{payload.walkthrough}}
+
+      User's design feedback/answers:
+      {{payload.design_feedback}}
+
+      Discovery notes:
+      {{payload.discovery_notes}}
+
+      Available global scripts:
+      {{json payload.extracted_json}}
+    completion_schema:
+      node_spec: string
+      script_spec: string
+      workflow_version: string
+      status: string
+    context_keys:
+      - walkthrough
+      - design_feedback
+      - discovery_notes
+      - extracted_json
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: gap_analysis
+
+  # --------------------------------------------------------------------------
+  # Phase 6b: Gap Analysis — challenge the spec before building
+  # --------------------------------------------------------------------------
+
+  gap_analysis:
+    type: llm_decision
+    max_visits: 3
+    instruction: >
+      You just produced a technical spec for "{{payload.proposed_name}}".
+      Now challenge it. Step back and analyze the spec from the user's
+      perspective — the core experience of someone actually using this
+      workflow.
+
+      Node spec:
+      {{payload.node_spec}}
+
+      Approved walkthrough (the user's expectations):
+      {{payload.walkthrough}}
+
+      Discovery notes (what the user told you):
+      {{payload.discovery_notes}}
+
+      {{#if payload.gap_revisions}}
+      Previous gap analysis revisions:
+      {{payload.gap_revisions}}
+      {{/if}}
+
+      Look for:
+      - Missing steps or edge cases the user would hit
+      - Places where the flow feels awkward or confusing
+      - Dead ends or paths with no recovery
+      - Data that's needed downstream but never collected
+      - Transitions that could strand the user
+      - Cycle budgets that are too tight or too loose
+      - Scripts that should exist but don't
+
+      If you find gaps:
+      - Set gaps_found to true
+      - Describe each gap clearly in gap_report
+      - Determine if any gaps change the CORE user experience
+        (not just technical tweaks). Set core_experience_changed
+        to true if so.
+
+      If the spec looks solid:
+      - Set gaps_found to false
+    required_schema:
+      gaps_found: boolean
+      gap_report: string
+      core_experience_changed: boolean
+      gap_revisions: string
+    transitions:
+      # No gaps — proceed to building
+      - condition: 'payload.gaps_found == false'
+        target: write_scripts
+        priority: 0
+      # Budget exhausted
+      - condition: '$metadata.visits.gap_analysis >= 3'
+        target: budget_exhausted
+        priority: 1
+      # Gaps but core experience unchanged — fix silently
+      - condition: 'payload.gaps_found == true && payload.core_experience_changed == false'
+        target: revise_spec
+        priority: 2
+      # Core experience changed — go back to user
+      - condition: 'payload.gaps_found == true && payload.core_experience_changed == true'
+        target: present_gaps
+        priority: 3
+
+  # Revise the spec to address non-core gaps silently.
+  revise_spec:
+    type: llm_task
+    instruction: >
+      Your gap analysis found issues that do not change the core user
+      experience. Revise the technical spec to address them.
+
+      Gap report:
+      {{payload.gap_report}}
+
+      Current node spec:
+      {{payload.node_spec}}
+
+      Current script spec:
+      {{payload.script_spec}}
+
+      Make targeted revisions — do not restructure the entire spec.
+      Update node_spec and script_spec with your fixes.
+    completion_schema:
+      node_spec: string
+      script_spec: string
+      status: string
+    context_keys:
+      - gap_report
+      - node_spec
+      - script_spec
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: gap_analysis
+
+  # Core experience gaps need user input.
+  present_gaps:
+    type: llm_task
+    instruction: >
+      Your gap analysis found issues that affect the core user experience
+      of "{{payload.proposed_name}}".
+
+      Gap report:
+      {{payload.gap_report}}
+
+      Present these gaps to the user clearly. Explain what was missed
+      and how it affects their experience. Let them know you need to
+      revisit the design with their input.
+    completion_schema:
+      status: string
+    context_keys:
+      - gap_report
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: design_discussion
+
+  # --------------------------------------------------------------------------
+  # Phase 7: Write Scripts
+  # --------------------------------------------------------------------------
+
+  write_scripts:
+    type: llm_task
+    instruction: >
+      Using the script specification you produced, write all scripts
+      needed for the workflow "{{payload.proposed_name}}".
+
+      Script spec:
+      {{payload.script_spec}}
+
+      Follow these conventions:
+      - set -euo pipefail at the top
+      - Source shared libs via: source "$DAWE_SCRIPTS_DIR/lib/common.sh"
+      - Include a header comment block with Description, Usage, Exit codes
+      - Support --help flag
+      - Use json_output/json_error from common.sh for output
+      - Exit 0 on success, non-zero on failure
+      - Scripts must be idempotent where possible
+
+      Per-workflow scripts go in:
+        ~/.pi/workflows/{{payload.proposed_name}}/scripts/
+
+      Global scripts go in $DAWE_SCRIPTS_DIR (note this to the user —
+      they will need to copy them manually to the repo).
+
+      Make each script executable after writing.
+
+      The workflow directory was initialized at:
+        ~/.pi/workflows/{{payload.proposed_name}}/
+    completion_schema:
+      scripts_written: string
+      status: string
+    context_keys:
+      - script_spec
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: generate_yaml
+
+  # --------------------------------------------------------------------------
+  # Phase 8: Generate YAML + Validate/Fix Cycle
+  # --------------------------------------------------------------------------
+
+  generate_yaml:
+    type: llm_task
+    instruction: >
+      Using the technical spec, write the complete workflow YAML for
+      "{{payload.proposed_name}}".
+
+      Node spec:
+      {{payload.node_spec}}
+
+      Scripts written:
+      {{payload.scripts_written}}
+
+      Write the YAML to:
+        ~/.pi/workflows/{{payload.proposed_name}}/{{payload.proposed_name}}.yml
+
+      Follow DAWE authoring best practices:
+      - Include header comment explaining the workflow
+      - Comment each phase section
+      - Use double-curly payload references in commands (auto-escaped,
+        no extra quotes)
+      - Use triple-curly raw_payload references only when combining
+        literal+template text
+      - Every non-terminal node needs a catch-all transition
+      - Include metadata (author, category, tags)
+      - Reference per-workflow scripts via $DAWE_WORKFLOW_SCRIPTS_DIR
+      - Reference global scripts via $DAWE_SCRIPTS_DIR
+    completion_schema:
+      yaml_path: string
+      status: string
+    context_keys:
+      - node_spec
+      - scripts_written
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: validate_yaml
+
+  # Run the validator against the generated YAML.
+  validate_yaml:
+    type: system_action
+    runtime: bash
+    command: 'node "$DAWE_SCRIPTS_DIR/validate-workflow.mjs" ~/.pi/workflows/{{payload.proposed_name}}/{{payload.proposed_name}}.yml /tmp/dawe/validate-result.json'
+    timeout_seconds: 15
+    max_visits: 3
+    extract_json: '/tmp/dawe/validate-result.json'
+    transitions:
+      - condition: 'action_result.exit_code == 0'
+        target: finalize
+        priority: 0
+      - condition: 'action_result.exit_code != 0 && $metadata.visits.validate_yaml >= 3'
+        target: validation_failed
+        priority: 1
+      - condition: 'action_result.exit_code != 0'
+        target: fix_yaml
+        priority: 2
+
+  # Fix validation errors.
+  fix_yaml:
+    type: llm_task
+    instruction: >
+      The workflow YAML for "{{payload.proposed_name}}" failed validation.
+      This is attempt {{$metadata.visits.validate_yaml}} of 3.
+
+      Validation errors:
+      {{json payload.extracted_json}}
+
+      Full validation log: {{payload.log_pointer_path}}
+
+      Original node spec:
+      {{payload.node_spec}}
+
+      Fix the YAML at:
+        ~/.pi/workflows/{{payload.proposed_name}}/{{payload.proposed_name}}.yml
+
+      Fix ONLY what the validation errors call out. Do not refactor or
+      restructure — make targeted corrections.
+    completion_schema:
+      fixes_applied: string
+      status: string
+    context_keys:
+      - extracted_json
+      - log_pointer_path
+      - node_spec
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: validate_yaml
+
+  # --------------------------------------------------------------------------
+  # Phase 8b: Finalize & Handoff
+  # --------------------------------------------------------------------------
+
+  finalize:
+    type: llm_task
+    instruction: >
+      The workflow "{{payload.proposed_name}}" has been created and
+      validated successfully.
+
+      Verify the workflow is fully wired up in the user's workflow
+      directory:
+      - Confirm the YAML exists at:
+        ~/.pi/workflows/{{payload.proposed_name}}/{{payload.proposed_name}}.yml
+      - Confirm all scripts are in place and executable
+      - Confirm the directory structure looks correct
+
+      Then inform the user:
+      1. Everything is complete and ready to use.
+      2. They need to run /reload to pick up the new workflow.
+      3. Give them a single one-line prompt they can use right after
+         reloading to kick off their new workflow. Make it natural —
+         something they'd actually type.
+    completion_schema:
+      verification: string
+      launch_prompt: string
+      status: string
+    context_keys:
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: survey_ask
+
+  # --------------------------------------------------------------------------
+  # Phase 9: Post-Mortem Survey — the workflow reviews itself
+  # --------------------------------------------------------------------------
+
+  # Humorous one-liner asking if the user has time for a brief survey.
+  survey_ask:
+    type: llm_decision
+    instruction: >
+      You just finished creating "{{payload.proposed_name}}" — congrats!
+      You've already given the user their launch instructions.
+
+      Now, after a line break, drop a humorous one-liner asking if
+      they have a moment for a "brief survey about their experience."
+      Think playful and self-aware — like an airline survey but you
+      know it's silly. One line only, keep it light.
+
+      If the user says yes (or plays along), set survey_accepted to true.
+      If they decline, say something gracious and set survey_accepted
+      to false.
+    required_schema:
+      survey_accepted: boolean
+    transitions:
+      - condition: 'payload.survey_accepted == true'
+        target: self_analysis
+        priority: 0
+      # User declines — wrap up
+      - condition: 'true'
+        target: done
+        priority: 1
+
+  # Agent reflects on its own experience running through the workflow.
+  # Identifies what worked, what was awkward, and suggests improvements.
+  self_analysis:
+    type: llm_decision
+    max_visits: 10
+    instruction: >
+      You just went through the entire create-workflow process to build
+      "{{payload.proposed_name}}". Now do a retrospective — reflect on
+      YOUR experience as the agent running this workflow.
+
+      Context from this session:
+      - Discovery notes: {{payload.discovery_notes}}
+      - Design feedback: {{payload.design_feedback}}
+      - Walkthrough: {{payload.walkthrough}}
+      - Workflow name: {{payload.proposed_name}}
+
+      {{#if payload.retro_notes}}
+      Retro discussion so far:
+      {{payload.retro_notes}}
+
+      The user's latest response: {{payload.retro_last_answer}}
+      {{/if}}
+
+      Think like a PO doing a sprint retro on the process itself.
+      Identify ONE thing at a time:
+      - What felt smooth and worked well?
+      - Where was the flow awkward, mechanical, or overwhelming?
+      - Where did you get stuck or the user had to correct course?
+      - What specific improvements would you suggest?
+
+      Share ONE observation with the user. Be honest and specific.
+      Discuss their reaction. Then decide if there's more to cover.
+
+      Set retro_complete to true when:
+      - You've covered the key points and the user is done
+      - The user signals they're done (e.g., "that's good", "wrap it up")
+
+      CRITICAL: This is a conversation, not a report dump. One
+      observation at a time, discuss, then move to the next.
+    required_schema:
+      retro_notes: string
+      retro_last_answer: string
+      retro_complete: boolean
+    transitions:
+      - condition: 'payload.retro_complete == true'
+        target: save_retro
+        priority: 0
+      - condition: '$metadata.visits.self_analysis >= 10'
+        target: save_retro
+        priority: 1
+      # More to discuss
+      - condition: 'true'
+        target: self_analysis
+        priority: 2
+
+  # Save the retro findings to a file for future reference.
+  save_retro:
+    type: llm_task
+    instruction: >
+      Save the retrospective findings from this session.
+
+      Retro notes:
+      {{payload.retro_notes}}
+
+      Workflow created: {{payload.proposed_name}}
+
+      Write a concise retro document to:
+      workflows_outputs/create-workflow/retro-{{payload.proposed_name}}.md
+
+      Format it as a readable markdown document with:
+      - Workflow name and date
+      - What worked well
+      - What was awkward or needs improvement
+      - Specific suggestions
+
+      Keep it concise — this is a reference for future improvements,
+      not a novel.
+
+      After saving, confirm to the user that the retro has been saved
+      and thank them for their time.
+    completion_schema:
+      retro_path: string
+      status: string
+    context_keys:
+      - retro_notes
+      - proposed_name
+    transitions:
+      - condition: 'true'
+        target: done
+
+  # --------------------------------------------------------------------------
+  # Terminals
+  # --------------------------------------------------------------------------
+
+  done:
+    type: terminal
+    status: success
+    message: 'Workflow "{{payload.proposed_name}}" created and validated successfully.'
+
+  init_failed:
+    type: terminal
+    status: failure
+    message: 'Failed to initialize workflow directory for "{{payload.proposed_name}}".'
+
+  validation_failed:
+    type: terminal
+    status: suspended
+    message: 'Workflow YAML for "{{payload.proposed_name}}" failed validation after 3 attempts. Human review needed.'
+
+  budget_exhausted:
+    type: terminal
+    status: suspended
+    message: 'Workflow creation for "{{payload.proposed_name}}" could not be completed — a step exhausted its retry budget. Human review needed.'

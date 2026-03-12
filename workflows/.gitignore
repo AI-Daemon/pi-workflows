@@ -1,0 +1,8 @@
+# Ignore user-generated workflows created by create-workflow.
+# Only _scripts/ and examples/ are tracked.
+*
+!.gitignore
+!_scripts/
+!_scripts/**
+!examples/
+!examples/**

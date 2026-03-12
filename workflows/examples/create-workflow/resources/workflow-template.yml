@@ -1,0 +1,144 @@
+# {workflow-name}.yml — Scaffold for new DAWE workflows
+#
+# This template includes the standard phases every workflow should have.
+# Fill in node instructions, schemas, and transitions to build your workflow.
+# The post-mortem survey phase at the end is included by default — it lets
+# the agent reflect on its own experience and suggest improvements.
+
+version: '2.0'
+workflow_name: create-workflow
+description: Scaffold for authoring new DAWE workflows.
+initial_node: gather_requirements
+
+nodes:
+  # --------------------------------------------------------------------------
+  # Core Workflow — replace these with your actual nodes
+  # --------------------------------------------------------------------------
+
+  gather_requirements:
+    type: llm_decision
+    instruction: 'TODO: Describe what information to gather from the user.'
+    required_schema:
+      description: string
+    transitions:
+      - condition: 'true'
+        target: execute_task
+
+  execute_task:
+    type: llm_task
+    instruction: 'TODO: Describe the main work to perform.'
+    completion_schema:
+      status: string
+    context_keys:
+      - description
+    transitions:
+      - condition: 'true'
+        target: survey_ask
+
+  # --------------------------------------------------------------------------
+  # Post-Mortem Survey — standard phase for all workflows
+  #
+  # After the workflow completes its main work, the agent humorously
+  # asks if the user has time for a brief survey. If accepted, it
+  # reflects on its own experience, discusses findings one at a time,
+  # and saves a retro document for future improvements.
+  # --------------------------------------------------------------------------
+
+  survey_ask:
+    type: llm_decision
+    instruction: >
+      The main workflow is complete. After a line break, drop a
+      humorous one-liner asking if the user has a moment for a
+      "brief survey about their experience." Keep it playful and
+      self-aware. One line only.
+
+      If the user says yes, set survey_accepted to true.
+      If they decline, say something gracious and set survey_accepted
+      to false.
+    required_schema:
+      survey_accepted: boolean
+    transitions:
+      - condition: 'payload.survey_accepted == true'
+        target: self_analysis
+        priority: 0
+      - condition: 'true'
+        target: done
+        priority: 1
+
+  self_analysis:
+    type: llm_decision
+    max_visits: 10
+    instruction: >
+      Reflect on YOUR experience running this workflow. Think like a
+      PO doing a sprint retro on the process itself.
+
+      {{#if payload.retro_notes}}
+      Retro so far:
+      {{payload.retro_notes}}
+
+      User's latest response: {{payload.retro_last_answer}}
+      {{/if}}
+
+      Identify ONE thing at a time:
+      - What felt smooth and worked well?
+      - Where was the flow awkward or mechanical?
+      - Where did you get stuck or the user had to correct course?
+      - What specific improvements would you suggest?
+
+      Share ONE observation. Discuss the user's reaction. Set
+      retro_complete to true when key points are covered or the
+      user signals they're done.
+
+      This is a conversation, not a report dump.
+    required_schema:
+      retro_notes: string
+      retro_last_answer: string
+      retro_complete: boolean
+    transitions:
+      - condition: 'payload.retro_complete == true'
+        target: save_retro
+        priority: 0
+      - condition: '$metadata.visits.self_analysis >= 10'
+        target: save_retro
+        priority: 1
+      - condition: 'true'
+        target: self_analysis
+        priority: 2
+
+  save_retro:
+    type: llm_task
+    instruction: >
+      Save the retrospective findings from this session.
+
+      Retro notes:
+      {{payload.retro_notes}}
+
+      Write a concise retro document to:
+      workflows_outputs/{workflow-name}/retro-{YYYY-MM-DD}.md
+
+      Format as readable markdown: date, what worked, what needs
+      improvement, specific suggestions. Keep it concise.
+
+      After saving, thank the user for their time.
+    completion_schema:
+      retro_path: string
+      status: string
+    context_keys:
+      - retro_notes
+    transitions:
+      - condition: 'true'
+        target: done
+
+  # --------------------------------------------------------------------------
+  # Terminals
+  # --------------------------------------------------------------------------
+
+  done:
+    type: terminal
+    status: success
+    message: 'Workflow completed successfully.'
+
+  budget_exhausted:
+    type: terminal
+    status: suspended
+    message: 'A step exhausted its retry budget. Human review needed.'
