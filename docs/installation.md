@@ -201,7 +201,7 @@ A structured code review workflow that guides the agent through reviewing a pull
 The most comprehensive bundled workflow. Replicates a full issue-first development cycle:
 
 1. Agent assesses the user's development intent
-2. System resolves the local project directory
+2. Agent resolves the local project directory
 3. System checks for existing GitHub issues (or creates one)
 4. Agent sets up a feature branch
 5. Agent implements code changes
