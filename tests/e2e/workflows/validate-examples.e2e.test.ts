@@ -4,7 +4,7 @@
  * Validates all example workflows in workflows/examples/ against
  * the full DAWE validation pipeline: YAML → schema → expression → graph.
  *
- * Also validates companion bash scripts in workflows/scripts/.
+ * Also validates companion bash scripts in workflows/_scripts/.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -21,7 +21,7 @@ import { resolveTemplate } from '../../../src/engine/template-engine.js';
 // ---------------------------------------------------------------------------
 
 const EXAMPLES_DIR = path.resolve(import.meta.dirname, '../../../workflows/examples');
-const SCRIPTS_DIR = path.resolve(import.meta.dirname, '../../../workflows/scripts');
+const SCRIPTS_DIR = path.resolve(import.meta.dirname, '../../../workflows/_scripts');
 
 function loadExampleYaml(filename: string): string {
   return readFileSync(path.join(EXAMPLES_DIR, filename), 'utf-8');

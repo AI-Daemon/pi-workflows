@@ -286,14 +286,18 @@ Workflows are loaded into memory at session start. Changes to YAML files are not
 
 The DAWE engine respects the following environment variables:
 
-| Variable            | Description                                                | Default  |
-| ------------------- | ---------------------------------------------------------- | -------- |
-| `DAWE_LOG_LEVEL`    | Log level: `debug`, `info`, `warn`, `error`                | `warn`   |
-| `DAWE_LOG_FORMAT`   | Log format: `json`, `pretty`                               | `json`   |
-| `DAWE_SCRIPTS_DIR`  | Absolute path to bundled scripts directory (auto-injected) | _(auto)_ |
-| `DAWE_PACKAGE_ROOT` | Absolute path to package root directory (auto-injected)    | _(auto)_ |
+| Variable                    | Description                                                                                    | Default  |
+| --------------------------- | ---------------------------------------------------------------------------------------------- | -------- |
+| `DAWE_LOG_LEVEL`            | Log level: `debug`, `info`, `warn`, `error`                                                    | `warn`   |
+| `DAWE_LOG_FORMAT`           | Log format: `json`, `pretty`                                                                   | `json`   |
+| `DAWE_SCRIPTS_DIR`          | Absolute path to global bundled scripts directory (auto-injected)                              | _(auto)_ |
+| `DAWE_PACKAGE_ROOT`         | Absolute path to package root directory (auto-injected)                                        | _(auto)_ |
+| `DAWE_WORKFLOW_SCRIPTS_DIR` | Absolute path to the current workflow's own `scripts/` directory, if it exists (auto-injected) | _(auto)_ |
 
-**`DAWE_SCRIPTS_DIR` and `DAWE_PACKAGE_ROOT`** are automatically injected into the environment of every `system_action` command by the extension. You do not need to set them manually. They are available in your workflow scripts as `$DAWE_SCRIPTS_DIR` and `$DAWE_PACKAGE_ROOT`.
+**`DAWE_SCRIPTS_DIR`, `DAWE_WORKFLOW_SCRIPTS_DIR`, and `DAWE_PACKAGE_ROOT`** are automatically injected into the environment of every `system_action` command by the extension. You do not need to set them manually. They are available in your workflow scripts as `$DAWE_SCRIPTS_DIR`, `$DAWE_WORKFLOW_SCRIPTS_DIR`, and `$DAWE_PACKAGE_ROOT`.
+
+- **`DAWE_SCRIPTS_DIR`** points to the global `workflows/_scripts/` directory for shared scripts.
+- **`DAWE_WORKFLOW_SCRIPTS_DIR`** points to a workflow's own `scripts/` subdirectory (e.g., `workflows/my-workflow/scripts/`). This is only set when the workflow has its own scripts directory; otherwise it is unset.
 
 The following variables are also auto-injected into every `system_action` execution:
 
@@ -365,8 +369,8 @@ See the [Error Code Reference](./error-code-reference.md) for specific error cod
 **Fix:**
 
 - **Missing `gh` CLI** — Install with `apt install gh` and authenticate with `gh auth login`
-- **Permission errors** — Ensure scripts are executable: `chmod +x ~/.pi/agent/git/github.com/AI-Daemon/pi-workflows/workflows/scripts/*.sh`
-- **Script not found** — If you see "No such file or directory", check that `$DAWE_SCRIPTS_DIR` is being injected. Restart Pi to ensure the extension loads.
+- **Permission errors** — Ensure scripts are executable: `chmod +x ~/.pi/agent/git/github.com/AI-Daemon/pi-workflows/workflows/_scripts/*.sh`
+- **Script not found** — If you see "No such file or directory", check that `$DAWE_SCRIPTS_DIR` is being injected. Restart Pi to ensure the extension loads. For per-workflow scripts, verify the workflow has a `scripts/` subdirectory and that `$DAWE_WORKFLOW_SCRIPTS_DIR` is set.
 
 ### "Tests fail in workflow"
 

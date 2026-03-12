@@ -212,7 +212,7 @@ Use when the engine should **execute a command natively** (bash or Node.js) with
 run_tests:
   type: system_action
   runtime: bash
-  command: 'bash workflows/scripts/run-project-tests.sh /tmp/dawe/test.json'
+  command: 'bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/dawe/test.json'
   timeout_seconds: 120
   max_visits: 3 # v2.0: allow 3 cycle iterations
   extract_json: '/tmp/dawe/test.json' # v2.0: parse structured output
@@ -605,6 +605,38 @@ The `$metadata` key is **protected** — agent payloads cannot overwrite it. Att
 
 ## Bash Scripts
 
+### Script Directory Layout
+
+DAWE supports two levels of script directories:
+
+```
+workflows/
+  _scripts/                    # Global scripts (DAWE_SCRIPTS_DIR)
+    check-gh-issue.sh
+    create-pr.sh
+    lib/common.sh
+  my-workflow/
+    my-workflow.yml            # Workflow definition
+    scripts/                   # Per-workflow scripts (DAWE_WORKFLOW_SCRIPTS_DIR)
+      my-helper.sh
+    resources/                 # Per-workflow resources
+  examples/
+    code-review.yml
+```
+
+- **`_scripts/`** — Global shared scripts available to all workflows via `$DAWE_SCRIPTS_DIR`. The underscore prefix signals this is an infrastructure directory, not a workflow.
+- **`<workflow>/scripts/`** — Per-workflow scripts available via `$DAWE_WORKFLOW_SCRIPTS_DIR`. This env var is only set when the workflow has its own `scripts/` subdirectory.
+
+Use global scripts for shared utilities (e.g., git helpers, test runners) and per-workflow scripts for workflow-specific logic.
+
+```yaml
+# Reference a global script
+command: 'bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/test.json'
+
+# Reference a per-workflow script
+command: 'bash "$DAWE_WORKFLOW_SCRIPTS_DIR/my-helper.sh" {{payload.arg}}'
+```
+
 ### Script Conventions
 
 System action commands should follow these conventions:
@@ -640,12 +672,17 @@ command: 'gh issue create --title "[{{{raw_payload.issue_type}}}] {{{raw_payload
 ### Testing Scripts Independently
 
 ```bash
-# Test a script outside the engine
+# Test a global script outside the engine
 export DAWE_WORKFLOW_NAME=test
 export DAWE_NODE_ID=run_tests
-bash workflows/scripts/run-project-tests.sh /tmp/test.json
+export DAWE_SCRIPTS_DIR=workflows/_scripts
+bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/test.json
 echo "Exit code: $?"
 cat /tmp/test.json
+
+# Test a per-workflow script
+export DAWE_WORKFLOW_SCRIPTS_DIR=workflows/my-workflow/scripts
+bash "$DAWE_WORKFLOW_SCRIPTS_DIR/my-helper.sh"
 ```
 
 ### JSON Reporter Output (v2.0)

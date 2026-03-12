@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { resolve } from 'node:path';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 
-import { WorkflowRegistry } from '../../../src/extension/workflow-registry.js';
+import { WorkflowRegistry, BUNDLED_SCRIPTS_DIR } from '../../../src/extension/workflow-registry.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,6 +31,17 @@ function cleanTempDir(): void {
 
 function writeTempWorkflow(name: string, content: string): void {
   writeFileSync(resolve(TEMP_DIR, name), content, 'utf-8');
+}
+
+function createTempSubDir(subDir: string): string {
+  const fullPath = resolve(TEMP_DIR, subDir);
+  mkdirSync(fullPath, { recursive: true });
+  return fullPath;
+}
+
+function writeTempSubWorkflow(subDir: string, fileName: string, content: string): void {
+  const dirPath = createTempSubDir(subDir);
+  writeFileSync(resolve(dirPath, fileName), content, 'utf-8');
 }
 
 // ---------------------------------------------------------------------------
@@ -381,5 +392,319 @@ nodes:
     // Warnings logged for missing dirs but no crash
     const warnings = registry.getWarnings();
     expect(warnings.some((w) => w.includes('/nonexistent/'))).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // New tests for subdirectory scanning & per-workflow scripts (issues #71, #72)
+  // ---------------------------------------------------------------------------
+
+  // 15. Discovers workflows inside subdirectories
+  it('should discover workflow YAML inside subdirectories', async () => {
+    createTempDir();
+
+    writeTempSubWorkflow(
+      'my-workflow',
+      'my-workflow.yml',
+      `
+version: '1.0'
+workflow_name: my-workflow
+description: A workflow in a subdirectory
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    const registry = new WorkflowRegistry([TEMP_DIR]);
+    await registry.loadAll();
+
+    const names = registry.list().map((w) => w.name);
+    expect(names).toContain('my-workflow');
+
+    cleanTempDir();
+  });
+
+  // 16. Discovers both top-level and subdirectory workflows in the same scan
+  it('should discover both top-level and subdirectory workflows', async () => {
+    createTempDir();
+
+    // Top-level workflow
+    writeTempWorkflow(
+      'top-level.yml',
+      `
+version: '1.0'
+workflow_name: top-level
+description: A top-level workflow
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    // Subdirectory workflow
+    writeTempSubWorkflow(
+      'sub-workflow',
+      'sub-workflow.yml',
+      `
+version: '1.0'
+workflow_name: sub-workflow
+description: A subdirectory workflow
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    const registry = new WorkflowRegistry([TEMP_DIR]);
+    await registry.loadAll();
+
+    const names = registry.list().map((w) => w.name);
+    expect(names).toContain('top-level');
+    expect(names).toContain('sub-workflow');
+
+    cleanTempDir();
+  });
+
+  // 17. Skips _-prefixed directories (e.g., _scripts)
+  it('should skip directories prefixed with underscore', async () => {
+    createTempDir();
+
+    // Create an _scripts directory with a YAML file (should be skipped)
+    writeTempSubWorkflow(
+      '_scripts',
+      'not-a-workflow.yml',
+      `
+version: '1.0'
+workflow_name: should-not-load
+description: This should not be discovered
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    // Also add a real workflow in a non-prefixed subdir
+    writeTempSubWorkflow(
+      'real-workflow',
+      'real-workflow.yml',
+      `
+version: '1.0'
+workflow_name: real-workflow
+description: A real workflow
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    const registry = new WorkflowRegistry([TEMP_DIR]);
+    await registry.loadAll();
+
+    const names = registry.list().map((w) => w.name);
+    expect(names).not.toContain('should-not-load');
+    expect(names).toContain('real-workflow');
+
+    cleanTempDir();
+  });
+
+  // 18. getWorkflowScriptsDir returns scripts path when scripts/ exists in workflow dir
+  it('should return per-workflow scripts dir when scripts/ exists', async () => {
+    createTempDir();
+
+    // Create a workflow with a scripts/ subdirectory
+    writeTempSubWorkflow(
+      'scripted-workflow',
+      'scripted-workflow.yml',
+      `
+version: '1.0'
+workflow_name: scripted-workflow
+description: A workflow with its own scripts
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    // Create the scripts/ subdirectory inside the workflow dir
+    createTempSubDir('scripted-workflow/scripts');
+
+    const registry = new WorkflowRegistry([TEMP_DIR]);
+    await registry.loadAll();
+
+    const scriptsDir = registry.getWorkflowScriptsDir('scripted-workflow');
+    expect(scriptsDir).toBeDefined();
+    expect(scriptsDir).toBe(resolve(TEMP_DIR, 'scripted-workflow', 'scripts'));
+
+    cleanTempDir();
+  });
+
+  // 19. getWorkflowScriptsDir returns undefined when no scripts/ exists
+  it('should return undefined for workflow without scripts dir', async () => {
+    createTempDir();
+
+    writeTempSubWorkflow(
+      'no-scripts-workflow',
+      'no-scripts-workflow.yml',
+      `
+version: '1.0'
+workflow_name: no-scripts-workflow
+description: A workflow without scripts
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    const registry = new WorkflowRegistry([TEMP_DIR]);
+    await registry.loadAll();
+
+    const scriptsDir = registry.getWorkflowScriptsDir('no-scripts-workflow');
+    expect(scriptsDir).toBeUndefined();
+
+    cleanTempDir();
+  });
+
+  // 20. getWorkflowScriptsDir returns undefined for nonexistent workflow
+  it('should return undefined for nonexistent workflow scripts dir', async () => {
+    const registry = new WorkflowRegistry([FIXTURES_DIR]);
+    await registry.loadAll();
+
+    const scriptsDir = registry.getWorkflowScriptsDir('nonexistent');
+    expect(scriptsDir).toBeUndefined();
+  });
+
+  // 21. BUNDLED_SCRIPTS_DIR points to _scripts (issue #72)
+  it('should point BUNDLED_SCRIPTS_DIR to _scripts directory', () => {
+    expect(BUNDLED_SCRIPTS_DIR).toMatch(/_scripts$/);
+  });
+
+  // 22. Subdirectory with multiple YAML files loads all of them
+  it('should load multiple YAML files from a single subdirectory', async () => {
+    createTempDir();
+
+    writeTempSubWorkflow(
+      'multi',
+      'first.yml',
+      `
+version: '1.0'
+workflow_name: first-workflow
+description: First workflow in subdir
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    writeTempSubWorkflow(
+      'multi',
+      'second.yml',
+      `
+version: '1.0'
+workflow_name: second-workflow
+description: Second workflow in subdir
+initial_node: start
+nodes:
+  start:
+    type: llm_task
+    instruction: Do something
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: end
+  end:
+    type: terminal
+    status: success
+`,
+    );
+
+    const registry = new WorkflowRegistry([TEMP_DIR]);
+    await registry.loadAll();
+
+    const names = registry.list().map((w) => w.name);
+    expect(names).toContain('first-workflow');
+    expect(names).toContain('second-workflow');
+
+    cleanTempDir();
   });
 });

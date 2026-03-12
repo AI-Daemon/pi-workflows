@@ -6,10 +6,11 @@
  * Invalid YAML files are logged as warnings but don't crash the registry.
  */
 
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+import { existsSync } from 'node:fs';
 
 import type { WorkflowDefinition } from '../schemas/workflow.schema.js';
 import { validateWorkflowFull } from '../engine/composite-validation.js';
@@ -26,7 +27,7 @@ export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..
 export const BUNDLED_EXAMPLES_DIR = join(PACKAGE_ROOT, 'workflows', 'examples');
 
 /** Absolute path to the bundled scripts directory. */
-export const BUNDLED_SCRIPTS_DIR = join(PACKAGE_ROOT, 'workflows', 'scripts');
+export const BUNDLED_SCRIPTS_DIR = join(PACKAGE_ROOT, 'workflows', '_scripts');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,8 @@ export interface WorkflowSummary {
 interface CachedWorkflow {
   definition: WorkflowDefinition;
   sourcePath: string;
+  /** The directory containing the workflow YAML (used for per-workflow scripts). */
+  workflowDir: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +120,7 @@ export class WorkflowRegistry {
         this.cache.set(name, {
           definition: result.data.definition,
           sourcePath: cached.sourcePath,
+          workflowDir: cached.workflowDir,
         });
         this.logger.info('Workflow reloaded successfully', { name });
       } else {
@@ -136,6 +140,22 @@ export class WorkflowRegistry {
     return [...this.warnings];
   }
 
+  /**
+   * Get the per-workflow scripts directory for a workflow, if it exists.
+   *
+   * Returns the absolute path to the workflow's own `scripts/` directory,
+   * or undefined if the workflow has no scripts directory.
+   */
+  getWorkflowScriptsDir(name: string): string | undefined {
+    const cached = this.cache.get(name);
+    if (!cached) {
+      return undefined;
+    }
+
+    const scriptsDir = join(cached.workflowDir, 'scripts');
+    return existsSync(scriptsDir) ? scriptsDir : undefined;
+  }
+
   // -----------------------------------------------------------------------
   // Internal
   // -----------------------------------------------------------------------
@@ -151,32 +171,77 @@ export class WorkflowRegistry {
       return;
     }
 
+    // 1. Scan top-level YAML files in the directory
     const yamlFiles = entries.filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
 
     for (const file of yamlFiles) {
       const filePath = join(dir, file);
-      try {
-        const content = await readFile(filePath, 'utf-8');
-        const result = validateWorkflowFull(content);
+      await this.loadWorkflowFile(filePath, dir);
+    }
 
-        if (result.ok) {
-          const name = result.data.definition.workflow_name;
-          if (this.cache.has(name)) {
-            this.warnings.push(`Duplicate workflow name "${name}" — overwriting with definition from ${filePath}`);
-          }
-          this.cache.set(name, {
-            definition: result.data.definition,
-            sourcePath: filePath,
-          });
-          this.logger.info('Workflow loaded', { name, sourcePath: filePath });
-        } else {
-          this.warnings.push(`Validation failed for ${filePath}: ${JSON.stringify(result.errors)}`);
-          this.logger.warn('Workflow validation failed', { filePath });
+    // 2. Scan subdirectories for YAML files (per-workflow directories).
+    //    Skip entries that start with '_' (internal/infrastructure directories like _scripts).
+    for (const entry of entries) {
+      if (entry.startsWith('_')) {
+        continue;
+      }
+
+      const entryPath = join(dir, entry);
+      try {
+        const entryStat = await stat(entryPath);
+        if (!entryStat.isDirectory()) {
+          continue;
+        }
+
+        // Scan YAML files inside the subdirectory
+        let subEntries: string[];
+        try {
+          subEntries = await readdir(entryPath);
+        } catch {
+          continue;
+        }
+
+        const subYamlFiles = subEntries.filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+        for (const file of subYamlFiles) {
+          const filePath = join(entryPath, file);
+          await this.loadWorkflowFile(filePath, entryPath);
         }
       } catch {
-        this.warnings.push(`Failed to read ${filePath}`);
-        this.logger.warn('Failed to read workflow file', { filePath });
+        // stat failed — skip
+        continue;
       }
+    }
+  }
+
+  /**
+   * Load and validate a single workflow YAML file, caching it on success.
+   *
+   * @param filePath - Absolute path to the YAML file.
+   * @param workflowDir - The directory containing the workflow (used for per-workflow scripts).
+   */
+  private async loadWorkflowFile(filePath: string, workflowDir: string): Promise<void> {
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const result = validateWorkflowFull(content);
+
+      if (result.ok) {
+        const name = result.data.definition.workflow_name;
+        if (this.cache.has(name)) {
+          this.warnings.push(`Duplicate workflow name "${name}" — overwriting with definition from ${filePath}`);
+        }
+        this.cache.set(name, {
+          definition: result.data.definition,
+          sourcePath: filePath,
+          workflowDir,
+        });
+        this.logger.info('Workflow loaded', { name, sourcePath: filePath });
+      } else {
+        this.warnings.push(`Validation failed for ${filePath}: ${JSON.stringify(result.errors)}`);
+        this.logger.warn('Workflow validation failed', { filePath });
+      }
+    } catch {
+      this.warnings.push(`Failed to read ${filePath}`);
+      this.logger.warn('Failed to read workflow file', { filePath });
     }
   }
 }
