@@ -59,6 +59,25 @@ nodes:
       change_type: string
     transitions:
       - condition: 'true'
+        target: resolve_project_dir
+
+  # --------------------------------------------------------------------------
+  # Phase 1.5: Resolve Project Directory
+  # --------------------------------------------------------------------------
+
+  # System action: find the git repository root for the current project.
+  # Asks the agent to provide the project directory so git and test
+  # commands execute in the correct location.
+  resolve_project_dir:
+    type: llm_decision
+    instruction: >
+      Determine the local project directory where the code changes live.
+      This should be the root of the git repository containing the changes
+      for this pull request. Provide the absolute path.
+    required_schema:
+      project_dir: string
+    transitions:
+      - condition: 'true'
         target: check_branch_status
 
   # --------------------------------------------------------------------------
@@ -69,7 +88,7 @@ nodes:
   check_branch_status:
     type: system_action
     runtime: bash
-    command: 'git log {{payload.base_branch}}..HEAD --oneline'
+    command: 'cd {{payload.project_dir}} && git log {{payload.base_branch}}..HEAD --oneline'
     timeout_seconds: 15
     transitions:
       # stdout is non-empty → branch has commits
@@ -89,7 +108,7 @@ nodes:
   run_checks:
     type: system_action
     runtime: bash
-    command: 'bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/dawe/pr-checks.json'
+    command: 'cd {{payload.project_dir}} && bash "$DAWE_SCRIPTS_DIR/run-project-tests.sh" /tmp/dawe/pr-checks.json'
     timeout_seconds: 120
     extract_json: '/tmp/dawe/pr-checks.json'
     transitions:
@@ -110,7 +129,7 @@ nodes:
   push_branch:
     type: system_action
     runtime: bash
-    command: 'git push origin HEAD'
+    command: 'cd {{payload.project_dir}} && git push origin HEAD'
     timeout_seconds: 60
     transitions:
       - condition: 'action_result.exit_code == 0'
@@ -125,6 +144,7 @@ nodes:
     type: system_action
     runtime: bash
     command: >
+      cd {{payload.project_dir}} &&
       gh pr create
       --title {{payload.title}}
       --body {{payload.description}}

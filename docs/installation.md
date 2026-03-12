@@ -201,12 +201,13 @@ A structured code review workflow that guides the agent through reviewing a pull
 The most comprehensive bundled workflow. Replicates a full issue-first development cycle:
 
 1. Agent assesses the user's development intent
-2. System checks for existing GitHub issues (or creates one)
-3. Agent sets up a feature branch
-4. Agent implements code changes
-5. System runs the test suite with **bounded cycles** (up to 3 attempts)
-6. Agent fixes failing tests (cycles back to test runner)
-7. System creates a pull request
+2. System resolves the local project directory
+3. System checks for existing GitHub issues (or creates one)
+4. Agent sets up a feature branch
+5. Agent implements code changes
+6. System runs the test suite with **bounded cycles** (up to 3 attempts)
+7. Agent fixes failing tests (cycles back to test runner)
+8. System creates a pull request
 
 This workflow demonstrates every v2.0 feature:
 
@@ -223,10 +224,11 @@ This workflow demonstrates every v2.0 feature:
 A focused workflow for creating pull requests after manual coding. Assumes code changes are already committed to a feature branch:
 
 1. Agent gathers PR details (title, description, base branch)
-2. System verifies commits ahead of base
-3. System runs lint and test checks
-4. System pushes the branch
-5. System creates the PR via `gh`
+2. Agent provides the local project directory
+3. System verifies commits ahead of base
+4. System runs lint and test checks
+5. System pushes the branch
+6. System creates the PR via `gh`
 
 **Prerequisites:** `gh` CLI, `git`, an existing branch with commits.
 
