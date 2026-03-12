@@ -90,6 +90,18 @@ export const LlmDecisionNodeSchema = z
       .describe('Timeout in seconds (default 120)'),
     retry: RetrySchema.optional().describe('Optional retry configuration'),
     max_visits: MaxVisitsSchema,
+    hide_tools: z
+      .boolean()
+      .default(false)
+      .describe('When true, suppresses native Pi tool JSON output in the TUI during this node.'),
+    ui_spinner: z
+      .string()
+      .optional()
+      .describe('Override for the TUI spinner text. If omitted, engine derives from node ID.'),
+    show_tool_output: z
+      .boolean()
+      .default(false)
+      .describe('When true, shows the advance_workflow payload in TUI output for debugging.'),
   })
   .strict()
   .describe('An LLM decision node that routes based on the model response');
@@ -117,6 +129,18 @@ export const LlmTaskNodeSchema = z
       .describe('Timeout in seconds (default 300)'),
     context_keys: z.array(z.string()).optional().describe('Payload keys to inject into the prompt context'),
     max_visits: MaxVisitsSchema,
+    hide_tools: z
+      .boolean()
+      .default(false)
+      .describe('When true, suppresses native Pi tool JSON output in the TUI during this node.'),
+    ui_spinner: z
+      .string()
+      .optional()
+      .describe('Override for the TUI spinner text. If omitted, engine derives from node ID.'),
+    show_tool_output: z
+      .boolean()
+      .default(false)
+      .describe('When true, shows the advance_workflow payload in TUI output for debugging.'),
   })
   .strict()
   .describe('An LLM task node that performs work and returns structured output');
@@ -151,6 +175,18 @@ export const SystemActionNodeSchema = z
       .describe(
         'File path to structured JSON output. Engine parses this file and merges result into payload.extracted_json.',
       ),
+    hide_tools: z
+      .boolean()
+      .default(false)
+      .describe('When true, suppresses native Pi tool JSON output in the TUI during this node.'),
+    ui_spinner: z
+      .string()
+      .optional()
+      .describe('Override for the TUI spinner text. If omitted, engine derives from node ID.'),
+    show_tool_output: z
+      .boolean()
+      .default(false)
+      .describe('When true, shows the advance_workflow payload in TUI output for debugging.'),
   })
   .strict()
   .describe('A system action node that runs a shell or Node.js command');

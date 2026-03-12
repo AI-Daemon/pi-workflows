@@ -1,0 +1,49 @@
+version: '1.0'
+workflow_name: ux-controls-workflow
+description: A workflow exercising all three UX control fields on every non-terminal node type.
+initial_node: decide
+
+nodes:
+  decide:
+    type: llm_decision
+    instruction: Decide what action to take.
+    required_schema:
+      action: string
+    transitions:
+      - condition: "action == 'task'"
+        target: do-task
+      - condition: "action == 'run'"
+        target: run-action
+      - condition: 'true'
+        target: done
+    hide_tools: true
+    ui_spinner: Analyzing request...
+    show_tool_output: true
+
+  do-task:
+    type: llm_task
+    instruction: Perform the requested task.
+    completion_schema:
+      result: string
+    transitions:
+      - condition: 'true'
+        target: done
+    hide_tools: true
+    ui_spinner: Working on task...
+    show_tool_output: false
+
+  run-action:
+    type: system_action
+    runtime: bash
+    command: echo "Running action"
+    transitions:
+      - condition: 'true'
+        target: done
+    hide_tools: false
+    ui_spinner: Executing command...
+    show_tool_output: true
+
+  done:
+    type: terminal
+    status: success
+    message: Workflow completed.

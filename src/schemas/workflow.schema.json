@@ -159,6 +159,20 @@
         },
         "max_visits": {
           "$ref": "#/$defs/MaxVisits"
+        },
+        "hide_tools": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, suppresses native Pi tool JSON output in the TUI during this node."
+        },
+        "ui_spinner": {
+          "type": "string",
+          "description": "Override for the TUI spinner text. If omitted, engine derives from node ID."
+        },
+        "show_tool_output": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, shows the advance_workflow payload in TUI output for debugging."
         }
       }
     },
@@ -205,6 +219,20 @@
         },
         "max_visits": {
           "$ref": "#/$defs/MaxVisits"
+        },
+        "hide_tools": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, suppresses native Pi tool JSON output in the TUI during this node."
+        },
+        "ui_spinner": {
+          "type": "string",
+          "description": "Override for the TUI spinner text. If omitted, engine derives from node ID."
+        },
+        "show_tool_output": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, shows the advance_workflow payload in TUI output for debugging."
         }
       }
     },
@@ -257,6 +285,20 @@
           "type": "string",
           "minLength": 1,
           "description": "File path to structured JSON output. Engine parses this file and merges result into payload.extracted_json."
+        },
+        "hide_tools": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, suppresses native Pi tool JSON output in the TUI during this node."
+        },
+        "ui_spinner": {
+          "type": "string",
+          "description": "Override for the TUI spinner text. If omitted, engine derives from node ID."
+        },
+        "show_tool_output": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, shows the advance_workflow payload in TUI output for debugging."
         }
       }
     },

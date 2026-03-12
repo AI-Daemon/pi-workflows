@@ -676,6 +676,294 @@ describe('v2.0 Schema — suspended terminal status', () => {
 });
 
 // ===================================================================
+// UX control fields (DAWE-002)
+// ===================================================================
+
+describe('UX control fields — hide_tools, ui_spinner, show_tool_output (DAWE-002)', () => {
+  it('llm_decision node with hide_tools: true validates successfully', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_decision',
+          instruction: 'Decide.',
+          required_schema: { answer: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+          hide_tools: true,
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+  });
+
+  it('llm_task node with hide_tools: true validates successfully', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_task',
+          instruction: 'Do work.',
+          completion_schema: { result: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+          hide_tools: true,
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+  });
+
+  it('system_action node with hide_tools: true validates successfully', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'system_action',
+          runtime: 'bash',
+          command: 'echo hi',
+          transitions: [{ condition: 'true', target: 'done' }],
+          hide_tools: true,
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+  });
+
+  it('node with ui_spinner: "Custom text" validates successfully', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_decision',
+          instruction: 'Decide.',
+          required_schema: { answer: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+          ui_spinner: 'Custom text',
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+  });
+
+  it('node with show_tool_output: true validates successfully', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_task',
+          instruction: 'Do work.',
+          completion_schema: { result: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+          show_tool_output: true,
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+  });
+
+  it('node with all three UX control fields set validates successfully', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'system_action',
+          runtime: 'bash',
+          command: 'echo hi',
+          transitions: [{ condition: 'true', target: 'done' }],
+          hide_tools: true,
+          ui_spinner: 'Running...',
+          show_tool_output: true,
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+  });
+
+  it('node omitting all three UX control fields validates (defaults applied)', () => {
+    const wf = minimalWorkflow();
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const start = result.data.nodes['start'];
+      expect(start).toBeDefined();
+      if (start?.type === 'llm_decision') {
+        expect(start.hide_tools).toBe(false);
+        expect(start.show_tool_output).toBe(false);
+        expect(start.ui_spinner).toBeUndefined();
+      }
+    }
+  });
+
+  it('hide_tools defaults to false when omitted (verify parsed output)', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_task',
+          instruction: 'Do work.',
+          completion_schema: { result: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const start = result.data.nodes['start'];
+      if (start?.type === 'llm_task') {
+        expect(start.hide_tools).toBe(false);
+      }
+    }
+  });
+
+  it('show_tool_output defaults to false when omitted (verify parsed output)', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'system_action',
+          runtime: 'bash',
+          command: 'echo hi',
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const start = result.data.nodes['start'];
+      if (start?.type === 'system_action') {
+        expect(start.show_tool_output).toBe(false);
+      }
+    }
+  });
+
+  it('ui_spinner is undefined when omitted (verify parsed output)', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_decision',
+          instruction: 'Decide.',
+          required_schema: { answer: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: { type: 'terminal', status: 'success' },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const start = result.data.nodes['start'];
+      if (start?.type === 'llm_decision') {
+        expect(start.ui_spinner).toBeUndefined();
+      }
+    }
+  });
+
+  it('terminal node with hide_tools is rejected by .strict()', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_decision',
+          instruction: 'Decide.',
+          required_schema: { answer: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: {
+          type: 'terminal',
+          status: 'success',
+          hide_tools: true,
+        },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(false);
+  });
+
+  it('existing valid fixtures still pass (minimal.yml and full-featured.yml)', () => {
+    const minimalResult = loadWorkflow(readFixture('valid/minimal.yml'));
+    expect(minimalResult.ok).toBe(true);
+
+    const fullResult = loadWorkflow(readFixture('valid/full-featured.yml'));
+    expect(fullResult.ok).toBe(true);
+  });
+
+  it('ux-controls.yml fixture validates with all fields parsed correctly', () => {
+    const result = loadWorkflow(readFixture('valid/ux-controls.yml'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.workflow_name).toBe('ux-controls-workflow');
+
+      const decide = result.data.nodes['decide'];
+      if (decide?.type === 'llm_decision') {
+        expect(decide.hide_tools).toBe(true);
+        expect(decide.ui_spinner).toBe('Analyzing request...');
+        expect(decide.show_tool_output).toBe(true);
+      }
+
+      const doTask = result.data.nodes['do-task'];
+      if (doTask?.type === 'llm_task') {
+        expect(doTask.hide_tools).toBe(true);
+        expect(doTask.ui_spinner).toBe('Working on task...');
+        expect(doTask.show_tool_output).toBe(false);
+      }
+
+      const runAction = result.data.nodes['run-action'];
+      if (runAction?.type === 'system_action') {
+        expect(runAction.hide_tools).toBe(false);
+        expect(runAction.ui_spinner).toBe('Executing command...');
+        expect(runAction.show_tool_output).toBe(true);
+      }
+    }
+  });
+
+  it('terminal node with ui_spinner is rejected by .strict()', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_decision',
+          instruction: 'Decide.',
+          required_schema: { answer: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: {
+          type: 'terminal',
+          status: 'success',
+          ui_spinner: 'Should not be here',
+        },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(false);
+  });
+
+  it('terminal node with show_tool_output is rejected by .strict()', () => {
+    const wf = minimalWorkflow({
+      nodes: {
+        start: {
+          type: 'llm_decision',
+          instruction: 'Decide.',
+          required_schema: { answer: 'string' },
+          transitions: [{ condition: 'true', target: 'done' }],
+        },
+        done: {
+          type: 'terminal',
+          status: 'success',
+          show_tool_output: true,
+        },
+      },
+    });
+    const result = validateWorkflow(wf);
+    expect(result.ok).toBe(false);
+  });
+});
+
+// ===================================================================
 // getSchemaVersion utility
 // ===================================================================
 
