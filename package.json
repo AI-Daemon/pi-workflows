@@ -33,26 +33,26 @@
     "test:e2e": "vitest run --project e2e"
   },
   "dependencies": {
-    "handlebars": "^4.7.8",
+    "handlebars": "^4.7.9",
     "jexl": "^2.3.0",
     "uuid": "^13.0.0",
-    "yaml": "^2.6.1",
+    "yaml": "^2.8.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@mariozechner/pi-ai": "^0.57.1",
-    "@mariozechner/pi-coding-agent": "^0.57.1",
-    "@sinclair/typebox": "^0.34.48",
-    "@types/node": "^25.4.0",
+    "@mariozechner/pi-ai": "^0.67.2",
+    "@mariozechner/pi-coding-agent": "^0.67.2",
+    "@sinclair/typebox": "^0.34.49",
+    "@types/node": "^25.6.0",
     "@types/uuid": "^11.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.19.1",
-    "@typescript-eslint/parser": "^8.19.1",
+    "@typescript-eslint/eslint-plugin": "^8.58.2",
+    "@typescript-eslint/parser": "^8.58.2",
     "@vitest/coverage-istanbul": "^2.1.8",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
-    "prettier": "^3.4.2",
+    "prettier": "^3.8.3",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.19.1",
+    "typescript-eslint": "^8.58.2",
     "vitest": "^2.1.8"
   },
   "peerDependencies": {
